@@ -13,8 +13,8 @@
     "setup": "npm install && cd backend && npm install && npm run init-db"
   },
   "dependencies": {
-    "@google/genai": "^1.40.0",
-    "framer-motion": "^12.31.2",
+    "@google/genai": "^1.43.0",
+    "framer-motion": "^12.34.3",
     "jszip": "^3.10.1",
     "katex": "^0.16.28",
     "lucide-react": "^0.563.0",
@@ -28,6 +28,7 @@
     "@types/react": "^19.2.13",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.0.0",
+    "terser": "^5.46.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }

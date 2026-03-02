@@ -7,6 +7,7 @@ import { initDatabase, getDatabase } from './database.js';
 import { setupWebSocket } from './websocket.js';
 import path from 'path';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
 
 // Import routes
 import authRoutes from './routes/auth.js';
@@ -22,20 +23,26 @@ import featuresRoutes from './routes/features.js';
 import demoFeaturesRoutes from './routes/demoFeatures.js';
 import announcementsRoutes from './routes/announcements.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Initialize database
 initDatabase();
 
+// 使用绝对路径确保目录位置正确（避免process.cwd()在不同环境下的差异）
+const projectsDir = path.join(__dirname, 'projects');
+const uploadsDir = path.join(__dirname, 'uploads', 'temp');
+const uploadsRootDir = path.join(__dirname, 'uploads');
+
 // 确保projects目录存在
-const projectsDir = path.join(process.cwd(), 'projects');
 if (!fs.existsSync(projectsDir)) {
   fs.mkdirSync(projectsDir, { recursive: true });
 }
 
 // 确保uploads目录存在
-const uploadsDir = path.join(process.cwd(), 'uploads', 'temp');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
@@ -54,7 +61,6 @@ app.use((req, res, next) => {
 });
 
 // 静态文件服务 - uploads目录
-const uploadsRootDir = path.join(process.cwd(), 'uploads');
 app.use('/uploads', express.static(uploadsRootDir, {
   setHeaders: (res, filePath) => {
     const ext = path.extname(filePath).toLowerCase();

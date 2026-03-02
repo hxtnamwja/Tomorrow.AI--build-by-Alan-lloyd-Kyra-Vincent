@@ -259,6 +259,15 @@ export default function App() {
     lastUpdated: 0
   });
 
+  // 选择性失效缓存的辅助函数
+  const invalidateCache = (keys: Array<'demos' | 'categories' | 'bounties' | 'communities' | 'users' | 'announcements'>) => {
+    setDataCache(prev => ({
+      ...prev,
+      ...keys.reduce((acc, key) => ({ ...acc, [key]: null }), {}),
+      lastUpdated: 0
+    }));
+  };
+
   const refreshAllData = async (forceRefresh: boolean = false) => {
     const now = Date.now();
     const cacheExpiry = 5 * 60 * 1000; // 5分钟缓存
@@ -387,7 +396,7 @@ export default function App() {
         communityId
       });
       alert('发布申请已提交，请等待审批');
-      await refreshAllData();
+      await refreshAllData(true);
     } catch (err) {
       console.error('Failed to create publication request:', err);
       alert('提交发布申请失败');
@@ -398,7 +407,7 @@ export default function App() {
     try {
       await PublicationsAPI.approve(id);
       alert('发布已批准');
-      await refreshAllData();
+      await refreshAllData(true);
     } catch (err) {
       console.error('Failed to approve publication:', err);
       alert('批准失败');
@@ -409,7 +418,7 @@ export default function App() {
     try {
       await PublicationsAPI.reject(id, reason);
       alert('发布已拒绝');
-      await refreshAllData();
+      await refreshAllData(true);
     } catch (err) {
       console.error('Failed to reject publication:', err);
       alert('拒绝失败');
@@ -423,7 +432,7 @@ export default function App() {
     try {
       await CommunitiesAPI.leave(communityId);
       alert('已成功退出社区');
-      await refreshAllData();
+      await refreshAllData(true);
     } catch (err) {
       console.error('Failed to leave community:', err);
       alert('退出社区失败');
@@ -443,7 +452,7 @@ export default function App() {
   };
 
   const handleFeedbackSuccess = async () => {
-    await refreshAllData();
+    await refreshAllData(true); // 强制刷新
   };
 
 
@@ -688,7 +697,7 @@ export default function App() {
       }
     }
     
-    await refreshAllData(true); // 上传后强制刷新
+    await refreshAllData(true);
     setView('explore');
     setBountyContext(null);
     alert(t('uploadSuccessMsg'));
@@ -706,36 +715,35 @@ export default function App() {
   };
 
   const handleAddCategory = async (name: string, parentId: string | null) => {
-    // Attach community ID if in community layer
     const commId = layer === 'community' ? activeCommunityId : undefined;
     await StorageService.addCategory(name, parentId, commId || undefined);
-    await refreshAllData();
+    await refreshAllData(true);
   };
 
   const handleDeleteCategory = async (id: string) => {
     if (window.confirm(t('confirmDeleteCat'))) {
       await StorageService.deleteCategory(id);
-      await refreshAllData();
       setActiveCategory('All');
+      await refreshAllData(true);
     }
   };
 
   const handleApprove = async (id: string) => {
     await StorageService.updateDemoStatus(id, 'published');
-    await refreshAllData();
+    await refreshAllData(true);
   };
 
   const handleReject = async (id: string) => {
     const reason = window.prompt(t('enterRejectionReason'), t('defaultRejectionReason'));
-    if (reason === null) return; // User cancelled
+    if (reason === null) return;
     await StorageService.updateDemoStatus(id, 'rejected', reason);
-    await refreshAllData();
+    await refreshAllData(true);
   };
-  
+
   const handleCreateBounty = async (data: any) => {
     try {
-      const newBounty = await BountiesAPI.create(data);
-      await refreshAllData();
+      await BountiesAPI.create(data);
+      await refreshAllData(true);
     } catch (error) {
       console.error('Create bounty error:', error);
       alert('发布悬赏失败');
@@ -746,7 +754,7 @@ export default function App() {
     if(window.confirm(t('confirmDeleteBounty'))) {
       try {
         await BountiesAPI.delete(id);
-        await refreshAllData();
+        await refreshAllData(true);
       } catch (error) {
         console.error('Delete bounty error:', error);
         alert('删除悬赏失败');
@@ -757,8 +765,8 @@ export default function App() {
   const handleDeleteDemo = async (id: string) => {
     if(window.confirm(t('confirmDeleteDemo'))) {
       await StorageService.deleteDemo(id);
-      await refreshAllData();
       setSelectedDemo(null);
+      await refreshAllData(true);
     }
   }
 
@@ -768,15 +776,15 @@ export default function App() {
       await StorageService.createCommunity(createCommData.name, createCommData.desc, currentUserId, createCommData.type);
       setCreateCommData({name: '', desc: '', type: 'closed'});
       setIsCreateCommModalOpen(false);
-      await refreshAllData();
+      await refreshAllData(true);
       alert("Community request sent for approval.");
   };
-  
+
   const handleJoinOpenCommunity = async (communityId: string) => {
     try {
       await StorageService.joinOpenCommunity(communityId);
-      await refreshAllData();
       alert('Successfully joined the community!');
+      await refreshAllData(true);
     } catch (error) {
       alert('Failed to join the community');
     }
@@ -786,7 +794,7 @@ export default function App() {
       const success = await StorageService.joinCommunityByCode(joinCode, currentUserId);
       if(success) {
           alert(t('successMsg'));
-          await refreshAllData();
+          await refreshAllData(true);
           setIsJoinCodeModalOpen(false);
           setJoinCode('');
       } else {
@@ -796,24 +804,24 @@ export default function App() {
 
   const handleRequestJoin = async (commId: string) => {
       await StorageService.joinCommunityRequest(commId, currentUserId);
-      await refreshAllData();
       alert("Request sent.");
+      await refreshAllData(true);
   };
 
   const handleApproveCommunity = async (id: string) => {
       await StorageService.approveCommunity(id);
-      await refreshAllData();
+      await refreshAllData(true);
   };
 
   const handleRejectCommunity = async (id: string) => {
       await StorageService.rejectCommunity(id);
-      await refreshAllData();
+      await refreshAllData(true);
   };
 
   const handleManageMember = async (commId: string, memberId: string, action: 'accept' | 'kick' | 'reject_request') => {
       try {
         await StorageService.manageMember(commId, memberId, action);
-        await refreshAllData();
+        await refreshAllData(true);
         if (action === 'accept') {
           alert(t('successMsg'));
         }
@@ -827,7 +835,7 @@ export default function App() {
       const newCode = prompt("Enter new 12-digit code:");
       if(newCode && newCode.length === 12) {
           await StorageService.updateCommunityCode(commId, newCode);
-          await refreshAllData();
+          await refreshAllData(true);
       } else if (newCode) {
           alert("Code must be 12 digits.");
       }
@@ -836,17 +844,8 @@ export default function App() {
   // Handle community update from admin panel
   const handleUpdateCommunity = async (updatedCommunity: Community) => {
       try {
-          // Update the community in storage
-          const communityIndex = communities.findIndex(c => c.id === updatedCommunity.id);
-          if (communityIndex !== -1) {
-              const newCommunities = [...communities];
-              newCommunities[communityIndex] = updatedCommunity;
-              setCommunities(newCommunities);
-              
-              // Persist to storage
-              await StorageService.saveCommunity(updatedCommunity);
-              await refreshAllData();
-          }
+          await StorageService.saveCommunity(updatedCommunity);
+          await refreshAllData(true);
       } catch (error: any) {
           console.error('Update community error:', error);
           alert(`更新失败: ${error.message}`);
@@ -858,7 +857,7 @@ export default function App() {
       try {
           if (window.confirm('确定要解散这个社区吗？此操作不可撤销。')) {
               await StorageService.deleteCommunity(communityId);
-              await refreshAllData();
+              await refreshAllData(true);
               setActiveCommunityAdminPanel(null);
               alert('社区已解散');
           }
@@ -883,7 +882,7 @@ export default function App() {
       reader.onloadend = () => {
         const base64 = reader.result as string;
         StorageService.updateDemoCover(demoIdToUpdateCover, base64).then(() => {
-          refreshAllData().then(() => {
+          refreshAllData(true).then(() => { // 强制刷新
             alert(t('coverUpdated'));
             setDemoIdToUpdateCover(null);
           });
@@ -2398,22 +2397,22 @@ export default function App() {
               isGeneralAdmin={isGeneralAdmin}
               userCommunities={userCreatedCommunities.map(c => ({ id: c.id, name: c.name }))}
               onSave={async (announcement) => {
-                const newAnn = await StorageService.createAnnouncement({
+                await StorageService.createAnnouncement({
                   ...announcement,
                   createdByUsername: currentUser?.username,
                 });
-                await refreshAllData();
+                await refreshAllData(true);
                 alert(t('announcementPublished'));
               }}
               onDelete={async (id) => {
                 if (window.confirm(t('confirmDeleteAnnouncement'))) {
                   await StorageService.deleteAnnouncement(id);
-                  await refreshAllData();
+                  await refreshAllData(true);
                 }
               }}
               onToggleActive={async (id, isActive) => {
                 await StorageService.toggleAnnouncementActive(id, isActive);
-                await refreshAllData();
+                await refreshAllData(true);
               }}
             />
           </div>
@@ -2771,7 +2770,7 @@ export default function App() {
           }
         }}
         onRefresh={async () => {
-          await refreshAllData();
+          await refreshAllData(true); // 强制刷新
           if (selectedBounty) {
             try {
               const updatedBounty = await BountiesAPI.getById(selectedBounty.id);

@@ -4,6 +4,13 @@ import multer from 'multer';
 import AdmZip from 'adm-zip';
 import path from 'path';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// 使用绝对路径确保项目目录位置正确（与server.js保持一致）
+const PROJECTS_DIR = path.join(__dirname, '..', 'projects');
 
 const router = Router();
 
@@ -187,18 +194,39 @@ router.post('/', async (req, res) => {
   }
 });
 
-// GET /demos/:id
-router.get('/:id', async (req, res) => {
+// GET /demos/archived/by/:userId - Get all archived demos by user (MUST be before /:id routes)
+router.get('/archived/by/:userId', async (req, res) => {
+  const { userId } = req.params;
+  
   try {
-    const demo = await getRow('SELECT * FROM demos WHERE id = ?', [req.params.id]);
+    const demos = await getAllRows(`
+      SELECT d.* FROM demos d
+      WHERE d.creator_id = ? AND d.archived = 1
+      ORDER BY d.archived_at DESC
+    `, [userId]);
     
-    if (!demo) {
-      return res.status(404).json({ code: 404, message: 'Demo not found', data: null });
-    }
-    
-    res.json({ code: 200, message: 'Success', data: mapDemoRow(demo) });
+    res.json({ code: 200, message: 'Success', data: demos.map(mapDemoRow) });
   } catch (error) {
-    console.error('Error fetching demo:', error);
+    console.error('Error fetching archived demos:', error);
+    res.status(500).json({ code: 500, message: 'Server error', data: null });
+  }
+});
+
+// GET /demos/liked/by/:userId - Get all demos liked by a user (MUST be before /:id routes)
+router.get('/liked/by/:userId', async (req, res) => {
+  const { userId } = req.params;
+  
+  try {
+    const demos = await getAllRows(`
+      SELECT d.* FROM demos d
+      JOIN demo_likes l ON d.id = l.demo_id
+      WHERE l.user_id = ? AND d.status = 'published'
+      ORDER BY l.created_at DESC
+    `, [userId]);
+    
+    res.json({ code: 200, message: 'Success', data: demos.map(mapDemoRow) });
+  } catch (error) {
+    console.error('Error fetching liked demos:', error);
     res.status(500).json({ code: 500, message: 'Server error', data: null });
   }
 });
@@ -424,24 +452,6 @@ router.delete('/:id/permanent', async (req, res) => {
   }
 });
 
-// GET /demos/archived/by/:userId - Get all archived demos by user
-router.get('/archived/by/:userId', async (req, res) => {
-  const { userId } = req.params;
-  
-  try {
-    const demos = await getAllRows(`
-      SELECT d.* FROM demos d
-      WHERE d.creator_id = ? AND d.archived = 1
-      ORDER BY d.archived_at DESC
-    `, [userId]);
-    
-    res.json({ code: 200, message: 'Success', data: demos.map(mapDemoRow) });
-  } catch (error) {
-    console.error('Error fetching archived demos:', error);
-    res.status(500).json({ code: 500, message: 'Server error', data: null });
-  }
-});
-
 // ==================== LIKE ROUTES ====================
 
 // GET /demos/:id/likes - Get like count and user's like status
@@ -562,25 +572,6 @@ router.delete('/:id/like', async (req, res) => {
   }
 });
 
-// GET /demos/liked/by/:userId - Get all demos liked by a user
-router.get('/liked/by/:userId', async (req, res) => {
-  const { userId } = req.params;
-  
-  try {
-    const demos = await getAllRows(`
-      SELECT d.* FROM demos d
-      JOIN demo_likes l ON d.id = l.demo_id
-      WHERE l.user_id = ? AND d.status = 'published'
-      ORDER BY l.created_at DESC
-    `, [userId]);
-    
-    res.json({ code: 200, message: 'Success', data: demos.map(mapDemoRow) });
-  } catch (error) {
-    console.error('Error fetching liked demos:', error);
-    res.status(500).json({ code: 500, message: 'Server error', data: null });
-  }
-});
-
 // ==================== ZIP UPLOAD ROUTES ====================
 
 // 配置multer用于文件上传
@@ -620,8 +611,8 @@ router.post('/upload-zip', uploadMultiple, async (req, res) => {
   }
   
   const demoId = 'demo-' + Date.now();
-  const projectDir = path.join('projects', demoId);
-  const originalDir = path.join('projects', demoId, '_original');
+  const projectDir = path.join(PROJECTS_DIR, demoId);
+  const originalDir = path.join(PROJECTS_DIR, demoId, '_original');
   
   try {
     fs.mkdirSync(projectDir, { recursive: true });
@@ -734,9 +725,9 @@ router.post('/:id/update', uploadMultiple, async (req, res) => {
     }
     
     const demoId = existingDemo.id;
-    const projectDir = path.join('projects', demoId);
-    const backupDir = path.join('projects', demoId + '_backup_' + Date.now());
-    const originalDir = path.join('projects', demoId, '_original');
+    const projectDir = path.join(PROJECTS_DIR, demoId);
+    const backupDir = path.join(PROJECTS_DIR, demoId + '_backup_' + Date.now());
+    const originalDir = path.join(PROJECTS_DIR, demoId, '_original');
     
     if (req.files && req.files.zipFile) {
       if (fs.existsSync(projectDir)) {
@@ -858,7 +849,7 @@ router.get('/:id/structure', async (req, res) => {
       });
     }
     
-    const projectDir = path.join('projects', demo.id);
+    const projectDir = path.join(PROJECTS_DIR, demo.id);
     
     if (!fs.existsSync(projectDir)) {
       return res.status(404).json({ 
@@ -900,7 +891,7 @@ router.get('/:id/files/*', async (req, res) => {
     
     const filepath = req.params[0] || '';
     const isOriginal = req.query.original === 'true';
-    const projectDir = path.join('projects', demo.id);
+    const projectDir = path.join(PROJECTS_DIR, demo.id);
     const baseDir = isOriginal ? path.join(projectDir, '_original') : projectDir;
     const fullPath = path.join(baseDir, filepath);
     
@@ -1134,6 +1125,22 @@ router.delete('/:id/comments/:commentId', async (req, res) => {
     });
   } catch (error) {
     console.error('Error deleting comment:', error);
+    res.status(500).json({ code: 500, message: 'Server error', data: null });
+  }
+});
+
+// GET /demos/:id - 必须放在所有具体路由之后，否则会拦截其他路由
+router.get('/:id', async (req, res) => {
+  try {
+    const demo = await getRow('SELECT * FROM demos WHERE id = ?', [req.params.id]);
+    
+    if (!demo) {
+      return res.status(404).json({ code: 404, message: 'Demo not found', data: null });
+    }
+    
+    res.json({ code: 200, message: 'Success', data: mapDemoRow(demo) });
+  } catch (error) {
+    console.error('Error fetching demo:', error);
     res.status(500).json({ code: 500, message: 'Server error', data: null });
   }
 });
