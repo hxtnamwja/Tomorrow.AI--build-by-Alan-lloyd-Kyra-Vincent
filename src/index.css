@@ -1,0 +1,14 @@
+/* Import KaTeX CSS from local node_modules - must be first */
+@import 'katex/dist/katex.min.css';
+
+/* Local Google Fonts via Fontsource */
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/700.css';
+@import '@fontsource/noto-sans-sc/400.css';
+@import '@fontsource/noto-sans-sc/500.css';
+@import '@fontsource/noto-sans-sc/700.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

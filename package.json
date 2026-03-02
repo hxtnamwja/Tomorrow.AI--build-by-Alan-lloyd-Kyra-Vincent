@@ -13,6 +13,8 @@
     "setup": "npm install && cd backend && npm install && npm run init-db"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.8",
+    "@fontsource/noto-sans-sc": "^5.2.9",
     "@google/genai": "^1.43.0",
     "framer-motion": "^12.34.3",
     "jszip": "^3.10.1",
@@ -28,6 +30,9 @@
     "@types/react": "^19.2.13",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.0.0",
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
     "terser": "^5.46.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"

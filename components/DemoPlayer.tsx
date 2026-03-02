@@ -84,6 +84,31 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
     return undefined;
   }, [demo, isMultiFile]);
 
+  // Mixed Content 防御：将 http:// 替换为 https://
+  const sanitizeMixedContent = (code: string): string => {
+    // 替换 script src 中的 http://
+    let sanitized = code.replace(
+      /<script([^>]*)src=["']http:\/\/([^"']+)["']/gi,
+      '<script$1src="https://$2"'
+    );
+    // 替换 link href 中的 http://
+    sanitized = sanitized.replace(
+      /<link([^>]*)href=["']http:\/\/([^"']+)["']/gi,
+      '<link$1href="https://$2"'
+    );
+    // 替换 CSS @import 中的 http://
+    sanitized = sanitized.replace(
+      /@import\s+["']http:\/\/([^"']+)["']/gi,
+      '@import "https://$1"'
+    );
+    // 替换 url() 中的 http://
+    sanitized = sanitized.replace(
+      /url\(["']?http:\/\/([^"')]+)["']?\)/gi,
+      'url(https://$1)'
+    );
+    return sanitized;
+  };
+
   // Inject TomorrowAI script into single-file demo code
   const getDemoCodeWithInjection = useMemo(() => {
     if (isMultiFile || !demo.code) return undefined;
@@ -304,7 +329,7 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
 </script>`;
     
     // Inject the script before </body> or </html>
-    let content = demo.code;
+    let content = sanitizeMixedContent(demo.code);
     const bodyEndIndex = content.lastIndexOf('</body>');
     if (bodyEndIndex !== -1) {
       content = content.slice(0, bodyEndIndex) + injectionScript + content.slice(bodyEndIndex);
@@ -1027,8 +1052,8 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
                 srcDoc={!isMultiFile ? getDemoCodeWithInjection : undefined}
                 className="border-0 block w-full h-full"
                 title={demo.title}
-                sandbox="allow-scripts allow-popups allow-modals allow-same-origin"
-                allow="fullscreen"
+                sandbox="allow-scripts allow-popups allow-modals allow-forms allow-downloads allow-pointer-lock"
+                allow="camera; microphone; geolocation; fullscreen; display-capture; autoplay; clipboard-read; clipboard-write; picture-in-picture"
                 onLoad={() => setDemoLoading(false)}
                 onError={() => setDemoLoading(false)}
               />
