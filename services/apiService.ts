@@ -2,16 +2,37 @@ import { Demo, Category, Bounty, Community, User, UserStats, DemoPublication, Fe
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
 
+// API请求缓存
+const apiCache = new Map<string, { data: any; timestamp: number }>();
+const CACHE_EXPIRY = 5 * 60 * 1000; // 5分钟缓存
+
 // Helper to get auth token
 const getToken = (): string | null => {
   return localStorage.getItem('sci_demo_token');
 };
 
-// Helper for API requests
+// 生成缓存键
+const generateCacheKey = (endpoint: string, options: RequestInit = {}): string => {
+  const method = options.method || 'GET';
+  const body = options.body ? JSON.stringify(options.body) : '';
+  return `${method}:${endpoint}:${body}`;
+};
+
+// Helper for API requests with caching
 const apiRequest = async <T>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  cacheEnabled: boolean = true
 ): Promise<{ code: number; message: string; data: T }> => {
+  // 检查缓存
+  if (cacheEnabled && options.method !== 'POST' && options.method !== 'PUT' && options.method !== 'DELETE') {
+    const cacheKey = generateCacheKey(endpoint, options);
+    const cached = apiCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_EXPIRY) {
+      return cached.data;
+    }
+  }
+
   const url = `${API_BASE_URL}${endpoint}`;
   const token = getToken();
   
@@ -34,7 +55,20 @@ const apiRequest = async <T>(
     throw new Error(error.message || `HTTP ${response.status}`);
   }
   
-  return response.json();
+  const data = await response.json();
+  
+  // 缓存响应
+  if (cacheEnabled && options.method !== 'POST' && options.method !== 'PUT' && options.method !== 'DELETE') {
+    const cacheKey = generateCacheKey(endpoint, options);
+    apiCache.set(cacheKey, { data, timestamp: Date.now() });
+  }
+  
+  return data;
+};
+
+// 清除缓存
+const clearCache = () => {
+  apiCache.clear();
 };
 
 // Auth API
@@ -43,10 +77,11 @@ export const AuthAPI = {
     const result = await apiRequest<{ token: string; user: User }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
-    });
+    }, false); // 登录请求不缓存
     if (result.data.token) {
       localStorage.setItem('sci_demo_token', result.data.token);
       localStorage.setItem('sci_demo_user', JSON.stringify(result.data.user));
+      clearCache(); // 登录后清除缓存
     }
     return result.data;
   },
@@ -55,10 +90,11 @@ export const AuthAPI = {
     const result = await apiRequest<{ token: string; user: User }>('/auth/register', {
         method: 'POST',
         body: JSON.stringify({ username, password }),
-    });
+    }, false); // 注册请求不缓存
     if (result.data.token) {
         localStorage.setItem('sci_demo_token', result.data.token);
         localStorage.setItem('sci_demo_user', JSON.stringify(result.data.user));
+        clearCache(); // 注册后清除缓存
     }
     return result.data;
   },
@@ -74,6 +110,7 @@ export const AuthAPI = {
   logout: () => {
     localStorage.removeItem('sci_demo_token');
     localStorage.removeItem('sci_demo_user');
+    clearCache(); // 登出后清除缓存
   },
   
   getStoredUser: () => {

@@ -214,7 +214,7 @@ export default function App() {
           localStorage.setItem('sci_demo_visited', 'true');
         }
       }
-      await refreshAllData();
+      await refreshAllData(true); // 首次加载强制刷新
     };
     initAuth();
   }, []);
@@ -248,7 +248,24 @@ export default function App() {
     }
   }, [isLoggedIn, role, currentUserId]);
 
-  const refreshAllData = async () => {
+  // 数据缓存
+  const [dataCache, setDataCache] = useState({
+    demos: null as Demo[] | null,
+    categories: null as Category[] | null,
+    bounties: null as Bounty[] | null,
+    communities: null as Community[] | null,
+    users: null as User[] | null,
+    announcements: null as Announcement[] | null,
+    lastUpdated: 0
+  });
+
+  const refreshAllData = async (forceRefresh: boolean = false) => {
+    const now = Date.now();
+    const cacheExpiry = 5 * 60 * 1000; // 5分钟缓存
+    
+    // 检查缓存是否有效
+    const isCacheValid = !forceRefresh && (now - dataCache.lastUpdated) < cacheExpiry;
+    
     await StorageService.initialize();
 
     // Refresh current user data if logged in
@@ -268,32 +285,48 @@ export default function App() {
 
     // Load demos based on sort preference
     let demosData: Demo[];
-    if (sortBy === 'likes') {
-      demosData = await StorageService.getDemosSortedByLikes({});
+    if (isCacheValid && dataCache.demos) {
+      demosData = dataCache.demos;
     } else {
-      demosData = await StorageService.getAllDemos();
+      if (sortBy === 'likes') {
+        demosData = await StorageService.getDemosSortedByLikes({});
+      } else {
+        demosData = await StorageService.getAllDemos();
+      }
     }
 
     let announcementsData: Announcement[] = [];
     try {
-      if (isLoggedIn && (role === 'general_admin' || userCreatedCommunities.length > 0)) {
-        announcementsData = await StorageService.getAllAnnouncementsAdmin();
+      if (isCacheValid && dataCache.announcements) {
+        announcementsData = dataCache.announcements;
       } else {
-        announcementsData = await StorageService.getAnnouncements({
-          layer: layer,
-          communityId: layer === 'community' ? activeCommunityId : undefined
-        });
+        if (isLoggedIn && (role === 'general_admin' || userCreatedCommunities.length > 0)) {
+          announcementsData = await StorageService.getAllAnnouncementsAdmin();
+        } else {
+          announcementsData = await StorageService.getAnnouncements({
+            layer: layer,
+            communityId: layer === 'community' ? activeCommunityId : undefined
+          });
+        }
       }
     } catch (err) {
       console.error('Failed to load announcements:', err);
     }
 
-    const [categoriesData, bountiesData, communitiesData, usersData] = await Promise.all([
-      StorageService.getCategories(),
-      StorageService.getBounties(),
-      StorageService.getCommunities(),
-      StorageService.getAllPublicUsers ? StorageService.getAllPublicUsers() : []
-    ]).catch(() => [null, null, null, []]);
+    let categoriesData, bountiesData, communitiesData, usersData;
+    if (isCacheValid && dataCache.categories && dataCache.bounties && dataCache.communities && dataCache.users) {
+      categoriesData = dataCache.categories;
+      bountiesData = dataCache.bounties;
+      communitiesData = dataCache.communities;
+      usersData = dataCache.users;
+    } else {
+      [categoriesData, bountiesData, communitiesData, usersData] = await Promise.all([
+        StorageService.getCategories(),
+        StorageService.getBounties(),
+        StorageService.getCommunities(),
+        StorageService.getAllPublicUsers ? StorageService.getAllPublicUsers() : []
+      ]).catch(() => [null, null, null, []]);
+    }
     
     const communitiesDataArray = communitiesData || [];
     
@@ -303,6 +336,17 @@ export default function App() {
     setCommunities(communitiesDataArray);
     setAllUsers(usersData || []);
     setAnnouncements(announcementsData || []);
+    
+    // 更新缓存
+    setDataCache({
+      demos: demosData,
+      categories: categoriesData || [],
+      bounties: bountiesData || [],
+      communities: communitiesDataArray,
+      users: usersData || [],
+      announcements: announcementsData || [],
+      lastUpdated: now
+    });
     
     // Check if user is a community admin directly using communitiesData
     const isCommunityAdmin = communitiesDataArray.some(c => c.creatorId === currentUserId);
@@ -644,7 +688,7 @@ export default function App() {
       }
     }
     
-    await refreshAllData();
+    await refreshAllData(true); // 上传后强制刷新
     setView('explore');
     setBountyContext(null);
     alert(t('uploadSuccessMsg'));

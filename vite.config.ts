@@ -62,14 +62,8 @@ export default defineConfig(({ mode }) => {
             entryFileNames: 'assets/js/[name]-[hash].js',
           }
         },
-        // 压缩选项
-        minify: 'terser',
-        terserOptions: {
-          compress: {
-            drop_console: true, // 移除console.log
-            drop_debugger: true, // 移除debugger
-          }
-        },
+        // 压缩选项 - 使用esbuild（Vite内置，无需额外依赖）
+        minify: 'esbuild',
         // 资源内联阈值（小于4KB的资源内联为base64）
         assetsInlineLimit: 4096,
         // 启用CSS代码分割

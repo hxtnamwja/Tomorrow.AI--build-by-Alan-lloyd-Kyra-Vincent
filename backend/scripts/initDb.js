@@ -84,7 +84,10 @@ const createTables = async () => {
       layer TEXT NOT NULL CHECK(layer IN ('general', 'community')),
       community_id TEXT,
       code TEXT NOT NULL,
+      original_code TEXT,
+      config TEXT,
       author TEXT NOT NULL,
+      creator_id TEXT NOT NULL,
       thumbnail_url TEXT,
       status TEXT NOT NULL CHECK(status IN ('pending', 'published', 'rejected')),
       rejection_reason TEXT,
@@ -94,7 +97,8 @@ const createTables = async () => {
       project_size INTEGER,
       tags TEXT,
       created_at INTEGER NOT NULL,
-      FOREIGN KEY (community_id) REFERENCES communities(id) ON DELETE CASCADE
+      FOREIGN KEY (community_id) REFERENCES communities(id) ON DELETE CASCADE,
+      FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE CASCADE
     )
   `);
 

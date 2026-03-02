@@ -53,6 +53,41 @@ app.use((req, res, next) => {
   next();
 });
 
+// 静态文件服务 - uploads目录
+const uploadsRootDir = path.join(process.cwd(), 'uploads');
+app.use('/uploads', express.static(uploadsRootDir, {
+  setHeaders: (res, filePath) => {
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeTypes = {
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif',
+      '.svg': 'image/svg+xml',
+      '.webp': 'image/webp',
+      '.bmp': 'image/bmp',
+      '.ico': 'image/x-icon',
+      '.woff': 'font/woff',
+      '.woff2': 'font/woff2',
+      '.ttf': 'font/ttf',
+      '.eot': 'application/vnd.ms-fontobject',
+      '.html': 'text/html',
+      '.htm': 'text/html',
+      '.css': 'text/css',
+      '.js': 'application/javascript',
+      '.json': 'application/json',
+      '.zip': 'application/zip'
+    };
+    
+    if (mimeTypes[ext]) {
+      res.setHeader('Content-Type', mimeTypes[ext]);
+    }
+    
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+  }
+}));
+
 // 静态文件服务 - 用于多文件项目的资源，自动注入TomorrowAI脚本
 app.use('/projects', async (req, res, next) => {
   const requestedPath = req.path;

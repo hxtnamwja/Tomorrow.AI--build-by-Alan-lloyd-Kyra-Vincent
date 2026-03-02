@@ -1,21 +1,13 @@
-
-// 构建API基础URL
+// 构建API基础URL - 使用相对路径
 const getApiBase = () => {
-  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api/v1';
-  // 如果配置的是相对路径，添加默认主机
-  if (apiUrl.startsWith('/')) {
-    return `http://localhost:3001${apiUrl}`;
-  }
-  return apiUrl;
+  // 生产环境使用相对路径，开发环境使用代理
+  return '/api/v1';
 };
 
 // 构建WebSocket基础URL
 const getWsBase = () => {
-  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api/v1';
-  if (apiUrl.startsWith('/')) {
-    return `ws://localhost:3001`;
-  }
-  return apiUrl.replace('http', 'ws').replace(/\/api\/v1$/, '');
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.host}`;
 };
 
 const API_BASE = getApiBase();
@@ -50,71 +42,11 @@ export const DemoDataStorage = {
       }
     });
     return response.json();
-  }
-};
-
-export const DemoRooms = {
-  async create(demoId: string, title?: string, maxPlayers?: number) {
-    const response = await fetch(`${API_BASE}/demo-features/${demoId}/rooms`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('sci_demo_token') || ''}`
-      },
-      body: JSON.stringify({ title, maxPlayers })
-    });
-    return response.json();
   },
 
-  async list(demoId: string) {
-    const response = await fetch(`${API_BASE}/demo-features/${demoId}/rooms`, {
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('sci_demo_token') || ''}`
-      }
-    });
-    return response.json();
-  },
-
-  async join(demoId: string, roomId: string) {
-    const response = await fetch(`${API_BASE}/demo-features/${demoId}/rooms/${roomId}/join`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('sci_demo_token') || ''}`
-      }
-    });
-    return response.json();
-  },
-
-  async leave(demoId: string, roomId: string) {
-    const response = await fetch(`${API_BASE}/demo-features/${demoId}/rooms/${roomId}/leave`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('sci_demo_token') || ''}`
-      }
-    });
-    return response.json();
-  },
-
-  async sendMessage(demoId: string, roomId: string, type: string, data: any) {
-    const response = await fetch(`${API_BASE}/demo-features/${demoId}/rooms/${roomId}/message`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('sci_demo_token') || ''}`
-      },
-      body: JSON.stringify({ type, data })
-    });
-    return response.json();
-  },
-
-  async getMessages(demoId: string, roomId: string, since?: string) {
-    const url = new URL(`${API_BASE}/demo-features/${demoId}/rooms/${roomId}/messages`);
-    if (since) {
-      url.searchParams.set('since', since);
-    }
-    const response = await fetch(url.toString(), {
+  async delete(demoId: string, key: string) {
+    const response = await fetch(`${API_BASE}/demo-features/${demoId}/data/${key}`, {
+      method: 'DELETE',
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('sci_demo_token') || ''}`
       }
@@ -123,127 +55,111 @@ export const DemoRooms = {
   }
 };
 
-export class DemoWebSocket {
-  ws: WebSocket | null = null;
-  demoId: string;
-  roomId: string;
-  userId: string;
-  onMessage: ((data: any) => void) | null = null;
-  onUserJoined: ((data: any) => void) | null = null;
-  onUserLeft: ((data: any) => void) | null = null;
-  onConnected: (() => void) | null = null;
-
-  constructor(demoId: string, roomId: string, userId: string) {
-    this.demoId = demoId;
-    this.roomId = roomId;
-    this.userId = userId;
-  }
-
-  connect() {
-    const wsUrl = `${WS_BASE}/ws?demoId=${this.demoId}&roomId=${this.roomId}&userId=${this.userId}`;
+export const DemoMultiplayer = {
+  ws: null as WebSocket | null,
+  
+  connect(demoId: string, onMessage: (data: any) => void) {
+    const wsUrl = `${WS_BASE}/demo-features/${demoId}/multiplayer`;
     this.ws = new WebSocket(wsUrl);
-
+    
     this.ws.onopen = () => {
-      console.log('WebSocket connected');
-      if (this.onConnected) this.onConnected();
+      console.log('Multiplayer connected');
     };
-
+    
     this.ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        switch(msg.type) {
-          case 'connected':
-            break;
-          case 'broadcast':
-            if (this.onMessage) this.onMessage(msg.data);
-            break;
-          case 'userJoined':
-            if (this.onUserJoined) this.onUserJoined(msg);
-            break;
-          case 'userLeft':
-            if (this.onUserLeft) this.onUserLeft(msg);
-            break;
-        }
-      } catch (e) {
-        console.error('WebSocket message error:', e);
-      }
+      const data = JSON.parse(event.data);
+      onMessage(data);
     };
-
+    
     this.ws.onclose = () => {
-      console.log('WebSocket disconnected');
+      console.log('Multiplayer disconnected');
     };
-
-    this.ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-    };
-  }
-
+    
+    return this.ws;
+  },
+  
   send(data: any) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({
-        type: 'broadcast',
-        data: data
-      }));
+      this.ws.send(JSON.stringify(data));
     }
-  }
-
+  },
+  
   disconnect() {
     if (this.ws) {
       this.ws.close();
       this.ws = null;
     }
   }
-}
+};
 
-if (typeof window !== 'undefined') {
-  (window as any).TomorrowAI = {
-    storage: {
-      set: async (key: string, value: any) => {
-        const demoId = (window as any).TomorrowAI?.demoId || '';
-        return DemoDataStorage.save(demoId, key, value);
+export const DemoAIChat = {
+  async sendMessage(demoId: string, message: string, context?: any) {
+    const response = await fetch(`${API_BASE}/demo-features/${demoId}/ai-chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('sci_demo_token') || ''}`
       },
-      get: async (key: string) => {
-        const demoId = (window as any).TomorrowAI?.demoId || '';
-        const result = await DemoDataStorage.get(demoId, key);
-        return result.data;
-      },
-      getAll: async () => {
-        const demoId = (window as any).TomorrowAI?.demoId || '';
-        const result = await DemoDataStorage.getAll(demoId);
-        return result.data;
-      }
-    },
-    rooms: {
-      list: async () => {
-        const demoId = (window as any).TomorrowAI?.demoId || '';
-        const result = await DemoRooms.list(demoId);
-        return result.data;
-      },
-      create: async (title?: string, maxPlayers?: number) => {
-        const demoId = (window as any).TomorrowAI?.demoId || '';
-        const result = await DemoRooms.create(demoId, title, maxPlayers);
-        return result.data;
-      },
-      join: async (roomId: string) => {
-        const demoId = (window as any).TomorrowAI?.demoId || '';
-        return DemoRooms.join(demoId, roomId);
-      },
-      leave: async (roomId: string) => {
-        const demoId = (window as any).TomorrowAI?.demoId || '';
-        return DemoRooms.leave(demoId, roomId);
-      },
-      sendMessage: async (roomId: string, type: string, data: any) => {
-        const demoId = (window as any).TomorrowAI?.demoId || '';
-        return DemoRooms.sendMessage(demoId, roomId, type, data);
-      },
-      getMessages: async (roomId: string, since?: string) => {
-        const demoId = (window as any).TomorrowAI?.demoId || '';
-        const result = await DemoRooms.getMessages(demoId, roomId, since);
-        return result.data;
-      }
-    },
-    WebSocket: DemoWebSocket,
-    getToken: () => localStorage.getItem('sci_demo_token') || ''
-  };
-}
+      body: JSON.stringify({ message, context })
+    });
+    return response.json();
+  },
 
+  async getHistory(demoId: string) {
+    const response = await fetch(`${API_BASE}/demo-features/${demoId}/ai-chat/history`, {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('sci_demo_token') || ''}`
+      }
+    });
+    return response.json();
+  }
+};
+
+export const DemoCodeExecution = {
+  async execute(demoId: string, code: string, language: string = 'javascript') {
+    const response = await fetch(`${API_BASE}/demo-features/${demoId}/execute`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('sci_demo_token') || ''}`
+      },
+      body: JSON.stringify({ code, language })
+    });
+    return response.json();
+  }
+};
+
+export const DemoFileStorage = {
+  async upload(demoId: string, file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const response = await fetch(`${API_BASE}/demo-features/${demoId}/files`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('sci_demo_token') || ''}`
+      },
+      body: formData
+    });
+    return response.json();
+  },
+
+  async list(demoId: string) {
+    const response = await fetch(`${API_BASE}/demo-features/${demoId}/files`, {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('sci_demo_token') || ''}`
+      }
+    });
+    return response.json();
+  },
+
+  async delete(demoId: string, fileId: string) {
+    const response = await fetch(`${API_BASE}/demo-features/${demoId}/files/${fileId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('sci_demo_token') || ''}`
+      }
+    });
+    return response.json();
+  }
+};
