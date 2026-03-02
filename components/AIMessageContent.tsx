@@ -198,7 +198,7 @@ export const AIMessageContent: React.FC<AIMessageContentProps> = ({ text, onOpen
   // If no HTML yet, render raw text (maybe with simple formatting)
   if (!processedHtml) {
     return (
-      <div className="prose prose-sm max-w-none text-slate-700 whitespace-pre-wrap font-sans">
+      <div className="prose prose-sm max-w-none text-slate-700 whitespace-pre-wrap font-sans break-words overflow-wrap-anywhere">
         {text}
       </div>
     );
@@ -207,7 +207,7 @@ export const AIMessageContent: React.FC<AIMessageContentProps> = ({ text, onOpen
   return (
     <div
       ref={containerRef}
-      className="prose prose-sm max-w-none text-slate-700 [&>p]:mb-2 [&>ul]:mb-2 [&>ol]:mb-2"
+      className="prose prose-sm max-w-none text-slate-700 [&>p]:mb-2 [&>ul]:mb-2 [&>ol]:mb-2 break-words overflow-wrap-anywhere"
       dangerouslySetInnerHTML={{ __html: processedHtml }}
     />
   );

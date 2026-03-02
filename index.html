@@ -365,6 +365,34 @@
       .katex, .katex .mathnormal, .katex .mathrm, .katex .mathbf {
         color: inherit;
       }
+
+      /* 文本溢出处理 */
+      .overflow-wrap-anywhere {
+        overflow-wrap: anywhere;
+        word-wrap: break-word;
+        word-break: break-word;
+      }
+      
+      /* AI消息内容样式 */
+      .ai-message-content {
+        overflow-wrap: anywhere;
+        word-wrap: break-word;
+        word-break: break-word;
+        max-width: 100%;
+      }
+      
+      .ai-message-content pre {
+        overflow-x: auto;
+        max-width: 100%;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+      }
+      
+      .ai-message-content code {
+        overflow-wrap: anywhere;
+        word-wrap: break-word;
+        word-break: break-all;
+      }
     </style>
   <script type="importmap">
 {

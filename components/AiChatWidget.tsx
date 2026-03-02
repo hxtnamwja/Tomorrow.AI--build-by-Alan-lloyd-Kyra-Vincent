@@ -160,20 +160,22 @@ ${demosContext}
             <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50 min-h-[300px]">
               {messages.map((msg, i) => (
                 <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[85%] p-3 rounded-2xl text-sm leading-relaxed shadow-sm ${
+                  <div className={`max-w-[85%] p-3 rounded-2xl text-sm leading-relaxed shadow-sm overflow-hidden ${
                     msg.role === 'user' 
                       ? 'bg-indigo-600 text-white rounded-br-none' 
                       : 'bg-white border border-slate-200 text-slate-700 rounded-bl-none'
                   }`}>
-                    {msg.role === 'model' ? (
-                      <AIMessageContent 
-                        text={msg.text} 
-                        onOpenDemo={onOpenDemo}
-                        isStreaming={isLoading && i === messages.length - 1}
-                      />
-                    ) : (
-                      msg.text
-                    )}
+                    <div className="break-words overflow-wrap-anywhere">
+                      {msg.role === 'model' ? (
+                        <AIMessageContent 
+                          text={msg.text} 
+                          onOpenDemo={onOpenDemo}
+                          isStreaming={isLoading && i === messages.length - 1}
+                        />
+                      ) : (
+                        msg.text
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}

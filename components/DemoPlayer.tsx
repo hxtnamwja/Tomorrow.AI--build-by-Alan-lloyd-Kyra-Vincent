@@ -55,6 +55,7 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
   const [iframeKey, setIframeKey] = useState(0);
   const [aiMessages, setAiMessages] = useState<{role: 'user' | 'model', text: string}[]>([]);
   const [aiLoading, setAiLoading] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [codeViewMode, setCodeViewMode] = useState<'modified' | 'original'>('modified');
   const [comments, setComments] = useState<any[]>([]);
@@ -69,7 +70,15 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
   const previewUrl = useMemo(() => {
     if (isMultiFile && demo.entryFile) {
       const apiBase = import.meta.env.VITE_API_URL || '/api/v1';
-      const baseUrl = apiBase.replace('/api/v1', '');
+      // 处理不同环境的base URL
+      let baseUrl: string;
+      if (apiBase.startsWith('http')) {
+        // 生产环境: https://twbt.top/api/v1 -> https://twbt.top
+        baseUrl = apiBase.replace(/\/api\/v1$/, '');
+      } else {
+        // 本地开发: /api/v1 -> ''
+        baseUrl = apiBase.replace('/api/v1', '');
+      }
       return `${baseUrl}/projects/${demo.id}/${demo.entryFile}`;
     }
     return undefined;
@@ -80,7 +89,15 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
     if (isMultiFile || !demo.code) return undefined;
     
     const apiBase = import.meta.env.VITE_API_URL || '/api/v1';
-    const baseUrl = apiBase.replace('/api/v1', '');
+    // 处理不同环境的base URL
+    let baseUrl: string;
+    if (apiBase.startsWith('http')) {
+      // 生产环境: https://twbt.top/api/v1 -> https://twbt.top
+      baseUrl = apiBase.replace(/\/api\/v1$/, '');
+    } else {
+      // 本地开发: /api/v1 -> ''
+      baseUrl = apiBase.replace('/api/v1', '');
+    }
     const wsBase = baseUrl.replace('http', 'ws');
     
     const injectionScript = `
@@ -1006,14 +1023,24 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
             >
               <iframe
                 key={iframeKey}
-                src={previewUrl}
-                srcDoc={getDemoCodeWithInjection}
+                src={isMultiFile ? previewUrl : undefined}
+                srcDoc={!isMultiFile ? getDemoCodeWithInjection : undefined}
                 className="border-0 block w-full h-full"
                 title={demo.title}
                 sandbox="allow-scripts allow-popups allow-modals allow-same-origin"
                 allow="fullscreen"
+                onLoad={() => setDemoLoading(false)}
+                onError={() => setDemoLoading(false)}
               />
             </div>
+            {demoLoading && (
+              <div className="absolute inset-0 flex items-center justify-center bg-white/80 backdrop-blur-sm z-10">
+                <div className="text-center p-6">
+                  <div className="w-12 h-12 mx-auto mb-4 rounded-full border-4 border-indigo-200 border-t-indigo-600 animate-spin"></div>
+                  <p className="text-slate-600 font-medium">加载中...</p>
+                </div>
+              </div>
+            )}
             {/* Mobile Fullscreen Hint */}
             {!isFullscreen && (
               <div className="md:hidden absolute top-4 right-4 bg-indigo-600/90 backdrop-blur-sm text-white px-3 py-2 rounded-lg shadow-lg animate-pulse">

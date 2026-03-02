@@ -72,8 +72,9 @@ app.use('/projects', async (req, res, next) => {
         }
         
         // 注入TomorrowAI脚本
-        const apiBase = (process.env.BASE_URL || 'http://localhost:3001') + '/api/v1';
-        const wsBase = (process.env.BASE_URL || 'ws://localhost:3001').replace('http', 'ws');
+        const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
+        const apiBase = baseUrl + '/api/v1';
+        const wsBase = baseUrl.replace('http', 'ws');
         
         const injectionScript = `
 <script>

@@ -441,6 +441,9 @@ router.post('/chat', async (req, res) => {
     const apiKey = process.env.SILICONFLOW_API_KEY;
     const model = process.env.SILICONFLOW_MODEL || 'deepseek-ai/DeepSeek-R1-0528-Qwen3-8B';
 
+    console.log('AI Chat - API Key check:', apiKey ? '已配置' : '未配置');
+    console.log('AI Chat - Model:', model);
+
     if (!apiKey) {
       console.error('Missing SILICONFLOW_API_KEY');
       res.setHeader('Content-Type', 'text/event-stream');
@@ -676,20 +679,24 @@ window.TomorrowAI.rooms.getMessages(since)       // 获取新消息
     // Stream the response
     const reader = response.body.getReader();
     const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    let outputBuffer = [];
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
 
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split('\n');
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      
+      buffer = lines.pop() || '';
 
       for (const line of lines) {
         if (line.trim() === '') continue;
         if (line.startsWith('data: ')) {
           const data = line.slice(6);
           if (data === '[DONE]') {
-            res.write('data: [DONE]\n\n');
+            outputBuffer.push('data: [DONE]\n\n');
             continue;
           }
           try {
@@ -702,11 +709,38 @@ window.TomorrowAI.rooms.getMessages(since)       // 获取新消息
                 .replace(/\r\n/g, '\n')
                 .replace(/\r/g, '\n');
               
-              res.write(`data: ${JSON.stringify({ content })}\n\n`);
+              outputBuffer.push(`data: ${JSON.stringify({ content })}\n\n`);
             }
           } catch (e) {
             console.warn('Failed to parse SSE data:', line, e);
           }
+        }
+      }
+      
+      // Flush buffer to ensure order
+      while (outputBuffer.length > 0) {
+        res.write(outputBuffer.shift());
+      }
+    }
+
+    if (buffer.trim() && buffer.startsWith('data: ')) {
+      const data = buffer.slice(6);
+      if (data === '[DONE]') {
+        res.write('data: [DONE]\n\n');
+      } else {
+        try {
+          const parsed = JSON.parse(data);
+          let content = parsed.choices?.[0]?.delta?.content || '';
+          if (content) {
+            content = content
+              .replace(/[\u0000-\u0008\u000B-\u000C\u000E-\u001F\u007F-\u009F]/g, '')
+              .replace(/\r\n/g, '\n')
+              .replace(/\r/g, '\n');
+            
+            res.write(`data: ${JSON.stringify({ content })}\n\n`);
+          }
+        } catch (e) {
+          console.warn('Failed to parse remaining buffer:', buffer, e);
         }
       }
     }

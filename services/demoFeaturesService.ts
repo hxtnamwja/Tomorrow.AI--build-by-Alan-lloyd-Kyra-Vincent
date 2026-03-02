@@ -1,6 +1,25 @@
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api/v1';
-const WS_BASE = (import.meta.env.VITE_API_URL || 'ws://localhost:3001').replace('http', 'ws');
+// 构建API基础URL
+const getApiBase = () => {
+  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api/v1';
+  // 如果配置的是相对路径，添加默认主机
+  if (apiUrl.startsWith('/')) {
+    return `http://localhost:3001${apiUrl}`;
+  }
+  return apiUrl;
+};
+
+// 构建WebSocket基础URL
+const getWsBase = () => {
+  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api/v1';
+  if (apiUrl.startsWith('/')) {
+    return `ws://localhost:3001`;
+  }
+  return apiUrl.replace('http', 'ws').replace(/\/api\/v1$/, '');
+};
+
+const API_BASE = getApiBase();
+const WS_BASE = getWsBase();
 
 export const DemoDataStorage = {
   async save(demoId: string, key: string, value: any) {
