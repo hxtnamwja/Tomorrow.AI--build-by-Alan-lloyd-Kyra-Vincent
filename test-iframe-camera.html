@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IFrame Camera Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        iframe {
+            border: 2px solid #333;
+            border-radius: 8px;
+            width: 400px;
+            height: 350px;
+        }
+        .info {
+            margin: 20px 0;
+            padding: 10px;
+            border-radius: 4px;
+            background-color: white;
+            width: 400px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <h1>IFrame Camera Test</h1>
+    <div class="info">
+        <p>Testing camera access in iframe with same configuration as DemoPlayer</p>
+    </div>
+    <iframe 
+        src="test-camera-user-interaction.html" 
+        sandbox="allow-scripts allow-same-origin allow-popups allow-modals allow-forms allow-downloads allow-pointer-lock"
+        allow="camera; microphone; geolocation; fullscreen; display-capture; autoplay; clipboard-read; clipboard-write; picture-in-picture"
+    ></iframe>
+</body>
+</html>

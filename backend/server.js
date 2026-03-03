@@ -96,7 +96,8 @@ app.use('/uploads', express.static(uploadsRootDir, {
 
 // 静态文件服务 - 用于多文件项目的资源，自动注入TomorrowAI脚本
 app.use('/projects', async (req, res, next) => {
-  const requestedPath = req.path;
+  // URL解码路径，处理中文和特殊字符
+  const requestedPath = decodeURIComponent(req.path);
   const fullPath = path.join(projectsDir, requestedPath);
   const ext = path.extname(fullPath).toLowerCase();
   
@@ -381,7 +382,8 @@ app.use('/projects', async (req, res, next) => {
 
 // 安全中间件 - 防止路径遍历攻击
 app.use('/projects', (req, res, next) => {
-  const requestedPath = path.normalize(req.path);
+  // URL解码路径，处理中文和特殊字符
+  const requestedPath = path.normalize(decodeURIComponent(req.path));
   
   // 确保路径不以..开头
   if (requestedPath.startsWith('..') || requestedPath.includes('/../')) {

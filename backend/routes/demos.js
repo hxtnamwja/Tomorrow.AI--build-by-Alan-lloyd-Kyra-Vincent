@@ -889,7 +889,8 @@ router.get('/:id/files/*', async (req, res) => {
       });
     }
     
-    const filepath = req.params[0] || '';
+    // URL解码路径，处理中文和特殊字符
+    const filepath = decodeURIComponent(req.params[0] || '');
     const isOriginal = req.query.original === 'true';
     const projectDir = path.join(PROJECTS_DIR, demo.id);
     const baseDir = isOriginal ? path.join(projectDir, '_original') : projectDir;

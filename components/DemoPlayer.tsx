@@ -79,7 +79,8 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
         // 本地开发: /api/v1 -> ''
         baseUrl = apiBase.replace('/api/v1', '');
       }
-      return `${baseUrl}/projects/${demo.id}/${demo.entryFile}`;
+      const encodedPath = demo.entryFile.split('/').map(encodeURIComponent).join('/');
+      return `${baseUrl}/projects/${demo.id}/${encodedPath}`;
     }
     return undefined;
   }, [demo, isMultiFile]);
@@ -561,7 +562,8 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
           const firstFile = result.data.structure.find(f => f.type === 'file');
           if (firstFile) {
             try {
-              const testResponse = await fetch(`${apiBase}/demos/${demo.id}/files/${firstFile.path}?original=true`);
+              const encodedPath = firstFile.path.split('/').map(encodeURIComponent).join('/');
+              const testResponse = await fetch(`${apiBase}/demos/${demo.id}/files/${encodedPath}?original=true`);
               const testResult = await testResponse.json();
               setHasOriginalVersion(testResult.code === 200);
             } catch (e) {
@@ -580,7 +582,8 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
   const loadFileContent = async (filepath: string, isOriginal = false) => {
     try {
       const apiBase = import.meta.env.VITE_API_URL || '/api/v1';
-      const url = `${apiBase}/demos/${demo.id}/files/${filepath}${isOriginal ? '?original=true' : ''}`;
+      const encodedPath = filepath.split('/').map(encodeURIComponent).join('/');
+      const url = `${apiBase}/demos/${demo.id}/files/${encodedPath}${isOriginal ? '?original=true' : ''}`;
       const response = await fetch(url);
       const result = await response.json();
       if (result.code === 200) {
@@ -1052,7 +1055,7 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
                 srcDoc={!isMultiFile ? getDemoCodeWithInjection : undefined}
                 className="border-0 block w-full h-full"
                 title={demo.title}
-                sandbox="allow-scripts allow-popups allow-modals allow-forms allow-downloads allow-pointer-lock"
+                sandbox="allow-scripts allow-same-origin allow-popups allow-modals allow-forms allow-downloads allow-pointer-lock"
                 allow="camera; microphone; geolocation; fullscreen; display-capture; autoplay; clipboard-read; clipboard-write; picture-in-picture"
                 onLoad={() => setDemoLoading(false)}
                 onError={() => setDemoLoading(false)}
