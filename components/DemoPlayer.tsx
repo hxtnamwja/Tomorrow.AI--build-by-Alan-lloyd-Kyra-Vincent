@@ -67,20 +67,16 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
   const isMultiFile = demo.projectType === 'multi-file';
   
   // Build preview URL for multi-file projects
+  // 始终使用相对路径，确保 Nginx 可以正确拦截并转发
   const previewUrl = useMemo(() => {
     if (isMultiFile && demo.entryFile) {
-      const apiBase = import.meta.env.VITE_API_URL || '/api/v1';
-      // 处理不同环境的base URL
-      let baseUrl: string;
-      if (apiBase.startsWith('http')) {
-        // 生产环境: https://twbt.top/api/v1 -> https://twbt.top
-        baseUrl = apiBase.replace(/\/api\/v1$/, '');
-      } else {
-        // 本地开发: /api/v1 -> ''
-        baseUrl = apiBase.replace('/api/v1', '');
-      }
+      // URL编码处理中文和特殊字符
       const encodedPath = demo.entryFile.split('/').map(encodeURIComponent).join('/');
-      return `${baseUrl}/projects/${demo.id}/${encodedPath}`;
+      // 使用相对路径: /projects/demo-xxx/path/to/index.html
+      // Nginx 会拦截 /projects/* 并转发到后端
+      const url = `/projects/${demo.id}/${encodedPath}`;
+      console.log('[DemoPlayer] Preview URL:', url);
+      return url;
     }
     return undefined;
   }, [demo, isMultiFile]);
@@ -114,17 +110,10 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
   const getDemoCodeWithInjection = useMemo(() => {
     if (isMultiFile || !demo.code) return undefined;
     
-    const apiBase = import.meta.env.VITE_API_URL || '/api/v1';
-    // 处理不同环境的base URL
-    let baseUrl: string;
-    if (apiBase.startsWith('http')) {
-      // 生产环境: https://twbt.top/api/v1 -> https://twbt.top
-      baseUrl = apiBase.replace(/\/api\/v1$/, '');
-    } else {
-      // 本地开发: /api/v1 -> ''
-      baseUrl = apiBase.replace('/api/v1', '');
-    }
-    const wsBase = baseUrl.replace('http', 'ws');
+    // 使用相对路径
+    const apiBase = '/api/v1';
+    const baseUrl = '';
+    const wsBase = window.location.protocol === 'https:' ? 'wss://' + window.location.host : 'ws://' + window.location.host;
     
     const injectionScript = `
 <script>
@@ -390,7 +379,8 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
     
     setEditLoading(true);
     try {
-      const apiBase = import.meta.env.VITE_API_URL || '/api/v1';
+      // 使用相对路径
+      const apiBase = '/api/v1';
       const formData = new FormData();
       
       formData.append('title', editTitle);
@@ -552,9 +542,21 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
   const loadProjectStructure = async () => {
     setLoadingStructure(true);
     try {
-      const apiBase = import.meta.env.VITE_API_URL || '/api/v1';
-      const response = await fetch(`${apiBase}/demos/${demo.id}/structure`);
+      // 使用相对路径，确保 Nginx 可以正确转发
+      const apiBase = '/api/v1';
+      const url = `${apiBase}/demos/${demo.id}/structure`;
+      console.log('[DemoPlayer] Loading project structure:', url);
+      const response = await fetch(url);
+      console.log('[DemoPlayer] Structure response status:', response.status);
+      
+      if (!response.ok) {
+        console.error('[DemoPlayer] Failed to load structure, HTTP status:', response.status);
+        setLoadingStructure(false);
+        return;
+      }
+      
       const result = await response.json();
+      console.log('[DemoPlayer] Structure result:', result);
       if (result.code === 200) {
         setProjectStructure(result.data.structure || []);
         
@@ -571,9 +573,11 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
             }
           }
         }
+      } else {
+        console.error('[DemoPlayer] Failed to load structure:', result.message);
       }
     } catch (error) {
-      console.error('Error loading project structure:', error);
+      console.error('[DemoPlayer] Error loading project structure:', error);
     } finally {
       setLoadingStructure(false);
     }
@@ -581,17 +585,27 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
 
   const loadFileContent = async (filepath: string, isOriginal = false) => {
     try {
-      const apiBase = import.meta.env.VITE_API_URL || '/api/v1';
+      // 使用相对路径，确保 Nginx 可以正确转发
+      const apiBase = '/api/v1';
       const encodedPath = filepath.split('/').map(encodeURIComponent).join('/');
       const url = `${apiBase}/demos/${demo.id}/files/${encodedPath}${isOriginal ? '?original=true' : ''}`;
+      console.log('[DemoPlayer] Loading file content:', url);
       const response = await fetch(url);
+      
+      if (!response.ok) {
+        console.error('[DemoPlayer] Failed to load file:', response.status);
+        return;
+      }
+      
       const result = await response.json();
       if (result.code === 200) {
         setFileContent(result.data.content);
         setSelectedFile(filepath);
+      } else {
+        console.error('[DemoPlayer] Error loading file:', result.message);
       }
     } catch (error) {
-      console.error('Error loading file content:', error);
+      console.error('[DemoPlayer] Error loading file content:', error);
     }
   };
   

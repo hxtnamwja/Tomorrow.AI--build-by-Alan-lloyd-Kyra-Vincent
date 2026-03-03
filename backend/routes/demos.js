@@ -9,8 +9,22 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 使用绝对路径确保项目目录位置正确（与server.js保持一致）
-const PROJECTS_DIR = path.join(__dirname, '..', 'projects');
+// 使用环境变量或默认路径，使用 path.resolve 确保绝对路径
+const PROJECTS_DIR = process.env.PROJECTS_PATH 
+  ? path.resolve(process.env.PROJECTS_PATH) 
+  : path.resolve(__dirname, '..', 'projects');
+
+console.log('[Demos] Projects directory:', PROJECTS_DIR);
+
+// 确保 projects 目录存在
+if (!fs.existsSync(PROJECTS_DIR)) {
+  try {
+    fs.mkdirSync(PROJECTS_DIR, { recursive: true });
+    console.log('[Demos] Created projects directory:', PROJECTS_DIR);
+  } catch (err) {
+    console.error('[Demos] Failed to create projects directory:', err);
+  }
+}
 
 const router = Router();
 
@@ -602,45 +616,89 @@ router.post('/upload-zip', uploadMultiple, async (req, res) => {
   const { title, description, categoryId, layer, communityId, config, tags, bountyId } = req.body;
   const user = await getCurrentUser(req);
   
+  console.log('[Upload-ZIP] Starting upload process...');
+  console.log('[Upload-ZIP] User:', user?.username || 'Unknown');
+  console.log('[Upload-ZIP] Title:', title);
+  
   if (!user) {
+    console.error('[Upload-ZIP] Unauthorized - no user');
     return res.status(401).json({ code: 401, message: 'Unauthorized', data: null });
   }
   
   if (!req.files || !req.files.zipFile) {
+    console.error('[Upload-ZIP] No file uploaded');
     return res.status(400).json({ code: 400, message: 'No file uploaded', data: null });
   }
   
+  console.log('[Upload-ZIP] File received:', req.files.zipFile[0].originalname, 'size:', req.files.zipFile[0].size);
+  
   const demoId = 'demo-' + Date.now();
-  const projectDir = path.join(PROJECTS_DIR, demoId);
-  const originalDir = path.join(PROJECTS_DIR, demoId, '_original');
+  const projectDir = path.resolve(PROJECTS_DIR, demoId);
+  const originalDir = path.resolve(PROJECTS_DIR, demoId, '_original');
+  
+  console.log('[Upload-ZIP] Project directory:', projectDir);
   
   try {
-    fs.mkdirSync(projectDir, { recursive: true });
-    fs.mkdirSync(originalDir, { recursive: true });
+    // 确保项目目录存在
+    if (!fs.existsSync(projectDir)) {
+      console.log('[Upload-ZIP] Creating project directory...');
+      fs.mkdirSync(projectDir, { recursive: true });
+    }
     
-    const zip = new AdmZip(req.files.zipFile[0].path);
-    zip.extractAllTo(projectDir, true);
+    // 确保 _original 目录存在
+    if (!fs.existsSync(originalDir)) {
+      console.log('[Upload-ZIP] Creating _original directory...');
+      fs.mkdirSync(originalDir, { recursive: true });
+    }
     
+    // 解压主 ZIP 文件
+    console.log('[Upload-ZIP] Extracting main ZIP file...');
+    try {
+      const zip = new AdmZip(req.files.zipFile[0].path);
+      zip.extractAllTo(projectDir, true);
+      console.log('[Upload-ZIP] Main ZIP extracted successfully');
+    } catch (zipErr) {
+      console.error('[Upload-ZIP] Failed to extract main ZIP:', zipErr);
+      throw new Error('ZIP文件解压失败: ' + (zipErr.message || 'Unknown error'));
+    }
+    
+    // 解压原始 ZIP 文件（如果有）
     if (req.files.originalZip && req.files.originalZip.length > 0) {
+      console.log('[Upload-ZIP] Extracting original ZIP file...');
       try {
         const originalZip = new AdmZip(req.files.originalZip[0].path);
         originalZip.extractAllTo(originalDir, true);
+        console.log('[Upload-ZIP] Original ZIP extracted successfully');
       } catch (e) {
-        console.warn('Failed to save original ZIP:', e);
+        console.warn('[Upload-ZIP] Failed to save original ZIP (non-critical):', e);
       }
     }
     
+    // 分析项目结构
+    console.log('[Upload-ZIP] Analyzing project structure...');
     const projectInfo = analyzeProjectStructure(projectDir);
+    console.log('[Upload-ZIP] Found', projectInfo.entryFiles.length, 'HTML files');
+    console.log('[Upload-ZIP] Entry files:', projectInfo.entryFiles);
     
     if (!projectInfo.entryFiles.length) {
-      fs.rmSync(projectDir, { recursive: true });
-      fs.unlinkSync(req.files.zipFile[0].path);
-      if (req.files.originalZip && req.files.originalZip.length > 0) {
-        fs.unlinkSync(req.files.originalZip[0].path);
+      console.error('[Upload-ZIP] No HTML files found in ZIP');
+      // 清理
+      try {
+        if (fs.existsSync(projectDir)) {
+          fs.rmSync(projectDir, { recursive: true, force: true });
+        }
+        if (req.files.zipFile[0].path && fs.existsSync(req.files.zipFile[0].path)) {
+          fs.unlinkSync(req.files.zipFile[0].path);
+        }
+        if (req.files.originalZip && req.files.originalZip[0] && fs.existsSync(req.files.originalZip[0].path)) {
+          fs.unlinkSync(req.files.originalZip[0].path);
+        }
+      } catch (cleanupErr) {
+        console.error('[Upload-ZIP] Cleanup error:', cleanupErr);
       }
       return res.status(400).json({ 
         code: 400, 
-        message: 'ZIP中未找到HTML文件', 
+        message: 'ZIP中未找到HTML文件，请确保ZIP包含至少一个.html文件', 
         data: null 
       });
     }
@@ -649,6 +707,8 @@ router.post('/upload-zip', uploadMultiple, async (req, res) => {
     const tagsJson = tags ? JSON.stringify(tags) : null;
     const hasOriginal = req.files.originalZip && req.files.originalZip.length > 0;
     
+    // 插入数据库
+    console.log('[Upload-ZIP] Inserting into database...');
     await runQuery(`
       INSERT INTO demos (id, title, description, category_id, layer, community_id, 
                        code, original_code, config, tags, author, creator_id, status, project_type, entry_file, project_size, created_at, bounty_id)
@@ -674,10 +734,21 @@ router.post('/upload-zip', uploadMultiple, async (req, res) => {
       bountyId || null
     ]);
     
-    fs.unlinkSync(req.files.zipFile[0].path);
-    if (req.files.originalZip && req.files.originalZip.length > 0) {
-      fs.unlinkSync(req.files.originalZip[0].path);
+    console.log('[Upload-ZIP] Database insert successful');
+    
+    // 清理临时文件
+    try {
+      if (req.files.zipFile[0].path && fs.existsSync(req.files.zipFile[0].path)) {
+        fs.unlinkSync(req.files.zipFile[0].path);
+      }
+      if (req.files.originalZip && req.files.originalZip[0] && fs.existsSync(req.files.originalZip[0].path)) {
+        fs.unlinkSync(req.files.originalZip[0].path);
+      }
+    } catch (cleanupErr) {
+      console.warn('[Upload-ZIP] Temp file cleanup warning:', cleanupErr);
     }
+    
+    console.log('[Upload-ZIP] Upload completed successfully:', demoId);
     
     res.json({ 
       code: 200, 
@@ -690,17 +761,29 @@ router.post('/upload-zip', uploadMultiple, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Upload ZIP error:', error);
-    if (fs.existsSync(projectDir)) {
-      fs.rmSync(projectDir, { recursive: true });
+    console.error('[Upload-ZIP] Error:', error);
+    console.error('[Upload-ZIP] Error stack:', error.stack);
+    
+    // 清理失败的目录
+    try {
+      if (fs.existsSync(projectDir)) {
+        fs.rmSync(projectDir, { recursive: true, force: true });
+      }
+      if (req.files && req.files.zipFile && req.files.zipFile[0] && fs.existsSync(req.files.zipFile[0].path)) {
+        fs.unlinkSync(req.files.zipFile[0].path);
+      }
+      if (req.files && req.files.originalZip && req.files.originalZip[0] && fs.existsSync(req.files.originalZip[0].path)) {
+        fs.unlinkSync(req.files.originalZip[0].path);
+      }
+    } catch (cleanupErr) {
+      console.error('[Upload-ZIP] Cleanup error:', cleanupErr);
     }
-    if (req.files && req.files.zipFile && fs.existsSync(req.files.zipFile[0].path)) {
-      fs.unlinkSync(req.files.zipFile[0].path);
-    }
-    if (req.files && req.files.originalZip && req.files.originalZip.length > 0 && fs.existsSync(req.files.originalZip[0].path)) {
-      fs.unlinkSync(req.files.originalZip[0].path);
-    }
-    res.status(500).json({ code: 500, message: '服务器错误', data: null });
+    
+    res.status(500).json({ 
+      code: 500, 
+      message: '服务器错误: ' + (error.message || 'Unknown error'), 
+      data: null 
+    });
   }
 });
 

@@ -412,6 +412,25 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
           body: formDataToSend
         });
         
+        // 处理 HTTP 错误状态
+        if (!response.ok) {
+          if (response.status === 413) {
+            alert('文件体积过大，请联系管理员调整服务器限制（Nginx client_max_body_size 或 Node.js body size limit）');
+            return;
+          }
+          if (response.status === 401) {
+            alert('登录已过期，请重新登录');
+            return;
+          }
+          if (response.status === 500) {
+            const errorData = await response.json().catch(() => ({}));
+            alert(`服务器错误: ${errorData.message || '请稍后重试'}`);
+            return;
+          }
+          alert(`上传失败: HTTP ${response.status}`);
+          return;
+        }
+        
         const result = await response.json();
         console.log('Upload result:', result);
         
@@ -439,7 +458,12 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
           alert(`上传失败: ${result.message || '未知错误'}`);
         }
       } catch (error) {
-        alert(`上传失败: ${error instanceof Error ? error.message : '未知错误'}`);
+        console.error('Upload error:', error);
+        if (error instanceof TypeError && error.message.includes('fetch')) {
+          alert('网络连接失败，请检查网络后重试');
+        } else {
+          alert(`上传失败: ${error instanceof Error ? error.message : '未知错误'}`);
+        }
       }
     } else if (projectMode === 'multi' && zipFile) {
       const formDataToSend = new FormData();
@@ -467,6 +491,25 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
           body: formDataToSend
         });
         
+        // 处理 HTTP 错误状态
+        if (!response.ok) {
+          if (response.status === 413) {
+            alert('文件体积过大，请联系管理员调整服务器限制');
+            return;
+          }
+          if (response.status === 401) {
+            alert('登录已过期，请重新登录');
+            return;
+          }
+          if (response.status === 500) {
+            const errorData = await response.json().catch(() => ({}));
+            alert(`服务器错误: ${errorData.message || '请稍后重试'}`);
+            return;
+          }
+          alert(`上传失败: HTTP ${response.status}`);
+          return;
+        }
+        
         const result = await response.json();
         
         if (result.code === 200) {
@@ -493,7 +536,12 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
           alert(`上传失败: ${result.message || '未知错误'}`);
         }
       } catch (error) {
-        alert(`上传失败: ${error instanceof Error ? error.message : '未知错误'}`);
+        console.error('Upload error:', error);
+        if (error instanceof TypeError && error.message.includes('fetch')) {
+          alert('网络连接失败，请检查网络后重试');
+        } else {
+          alert(`上传失败: ${error instanceof Error ? error.message : '未知错误'}`);
+        }
       }
     } else {
       console.log('Submitting single-file demo, code length:', formData.code.length);

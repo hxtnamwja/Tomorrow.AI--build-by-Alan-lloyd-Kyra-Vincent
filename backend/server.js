@@ -32,19 +32,36 @@ const PORT = process.env.PORT || 3001;
 // Initialize database
 initDatabase();
 
-// 使用绝对路径确保目录位置正确（避免process.cwd()在不同环境下的差异）
-const projectsDir = path.join(__dirname, 'projects');
-const uploadsDir = path.join(__dirname, 'uploads', 'temp');
-const uploadsRootDir = path.join(__dirname, 'uploads');
+// 使用环境变量或默认路径，确保目录位置正确
+// 使用 path.resolve 确保路径是绝对路径，避免跨系统路径分隔符问题
+const projectsDir = process.env.PROJECTS_PATH 
+  ? path.resolve(process.env.PROJECTS_PATH) 
+  : path.resolve(__dirname, 'projects');
+const uploadsDir = path.resolve(__dirname, 'uploads', 'temp');
+const uploadsRootDir = path.resolve(__dirname, 'uploads');
 
-// 确保projects目录存在
-if (!fs.existsSync(projectsDir)) {
-  fs.mkdirSync(projectsDir, { recursive: true });
+console.log('[Server] Projects directory:', projectsDir);
+console.log('[Server] Uploads directory:', uploadsRootDir);
+
+// 确保projects目录存在 - 使用 recursive: true 确保跨平台兼容
+try {
+  if (!fs.existsSync(projectsDir)) {
+    fs.mkdirSync(projectsDir, { recursive: true });
+    console.log('[Server] Created projects directory:', projectsDir);
+  }
+} catch (err) {
+  console.error('[Server] Failed to create projects directory:', err);
+  process.exit(1);
 }
 
 // 确保uploads目录存在
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+try {
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+    console.log('[Server] Created uploads directory:', uploadsDir);
+  }
+} catch (err) {
+  console.error('[Server] Failed to create uploads directory:', err);
 }
 
 // Middleware
@@ -96,27 +113,47 @@ app.use('/uploads', express.static(uploadsRootDir, {
 
 // 静态文件服务 - 用于多文件项目的资源，自动注入TomorrowAI脚本
 app.use('/projects', async (req, res, next) => {
-  // URL解码路径，处理中文和特殊字符
-  const requestedPath = decodeURIComponent(req.path);
-  const fullPath = path.join(projectsDir, requestedPath);
-  const ext = path.extname(fullPath).toLowerCase();
-  
-  if (ext === '.html' || ext === '.htm') {
+  try {
+    // URL解码路径，处理中文和特殊字符
+    let requestedPath = req.path;
     try {
-      if (fs.existsSync(fullPath)) {
+      requestedPath = decodeURIComponent(req.path);
+    } catch (decodeErr) {
+      console.error('[Projects] Failed to decode path:', req.path, decodeErr);
+      return res.status(400).json({ code: 400, message: 'Invalid path encoding', data: null });
+    }
+    
+    // 使用 path.resolve 和 path.normalize 确保路径安全
+    const fullPath = path.resolve(projectsDir, requestedPath.replace(/^\//, ''));
+    const ext = path.extname(fullPath).toLowerCase();
+    
+    // 安全检查：确保路径在 projectsDir 内
+    if (!fullPath.startsWith(projectsDir)) {
+      console.error('[Projects] Path traversal attempt:', requestedPath);
+      return res.status(403).json({ code: 403, message: 'Access denied', data: null });
+    }
+    
+    // 检查文件是否存在
+    if (!fs.existsSync(fullPath)) {
+      console.warn('[Projects] File not found:', fullPath);
+      return res.status(404).json({ code: 404, message: 'File not found', data: null });
+    }
+    
+    if (ext === '.html' || ext === '.htm') {
+      try {
         let content = fs.readFileSync(fullPath, 'utf-8');
         
         // 从URL中提取demoId（路径格式: /projects/demo-xxx/index.html）
-        const pathParts = requestedPath.split('/');
+        const pathParts = requestedPath.split('/').filter(Boolean);
         let demoId = '';
-        if (pathParts.length >= 2) {
-          demoId = pathParts[1];
+        if (pathParts.length >= 1) {
+          demoId = pathParts[0];
         }
         
         // 注入TomorrowAI脚本
         const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
         const apiBase = baseUrl + '/api/v1';
-        const wsBase = baseUrl.replace('http', 'ws');
+        const wsBase = baseUrl.replace('http', 'ws').replace('https', 'wss');
         
         const injectionScript = `
 <script>
@@ -339,14 +376,18 @@ app.use('/projects', async (req, res, next) => {
         res.setHeader('Cache-Control', 'no-cache');
         res.send(content);
         return;
+      } catch (htmlErr) {
+        console.error('[Projects] Error processing HTML file:', htmlErr);
+        return res.status(500).json({ code: 500, message: 'Error processing HTML file', data: null });
       }
-    } catch (e) {
-      console.error('Error processing HTML file:', e);
     }
+    
+    // 对于非HTML文件，继续使用静态服务
+    next();
+  } catch (err) {
+    console.error('[Projects] Middleware error:', err);
+    return res.status(500).json({ code: 500, message: 'Internal server error', data: null });
   }
-  
-  // 对于非HTML文件，继续使用静态服务
-  next();
 }, express.static(projectsDir, {
   setHeaders: (res, filePath) => {
     const ext = path.extname(filePath).toLowerCase();
