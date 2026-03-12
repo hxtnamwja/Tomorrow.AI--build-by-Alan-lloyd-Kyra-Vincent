@@ -231,6 +231,37 @@ router.put('/:id/unban', async (req, res) => {
     res.status(500).json({ code: 500, message: 'Server error', data: null });
   }
 });
+// PATCH /users/:id/role - Toggle general admin role (general admin only)
+router.patch('/:id/role', async (req, res) => {
+  const currentUser = await getUserFromAuth(req);
+  if (!currentUser || currentUser.role !== 'general_admin') {
+    return res.status(403).json({ code: 403, message: 'Forbidden', data: null });
+  }
+
+  const { id } = req.params;
+  const { role } = req.body;
+
+  if (id === currentUser.id) {
+    return res.status(400).json({ code: 400, message: 'Cannot demote yourself', data: null });
+  }
+
+  if (role !== 'user' && role !== 'general_admin') {
+    return res.status(400).json({ code: 400, message: 'Invalid role', data: null });
+  }
+
+  try {
+    const user = await getRow('SELECT * FROM users WHERE id = ?', [id]);
+    if (!user) {
+      return res.status(404).json({ code: 404, message: 'User not found', data: null });
+    }
+
+    await runQuery('UPDATE users SET role = ? WHERE id = ?', [role, id]);
+    res.json({ code: 200, message: `用户权限已更新为 ${role === 'general_admin' ? '管理员' : '普通用户'}`, data: null });
+  } catch (error) {
+    console.error('Update user role error:', error);
+    res.status(500).json({ code: 500, message: 'Server error', data: null });
+  }
+});
 
 // PUT /users/:id - Update user profile
 router.put('/:id', async (req, res) => {
@@ -240,7 +271,7 @@ router.put('/:id', async (req, res) => {
   }
 
   const { id } = req.params;
-  const { 
+  const {
     username, password, contactInfo, paymentQr, bio,
     contributionPoints, points, communityPoints, favorites,
     avatarBorder, avatarAccessory, avatarEffect,
@@ -385,7 +416,7 @@ router.get('/:id/stats', async (req, res) => {
   try {
     // First, get the user to know their username
     const user = await getRow('SELECT id, username FROM users WHERE id = ?', [id]);
-    
+
     if (!user) {
       return res.status(404).json({ code: 404, message: 'User not found', data: null });
     }
@@ -395,7 +426,7 @@ router.get('/:id/stats', async (req, res) => {
       SELECT COUNT(*) as count FROM demos 
       WHERE (creator_id = ? OR author = ?)
     `, [id, user.username]);
-    
+
     const demosCount = demosCountResult.count;
 
     const communitiesManaged = await getAllRows('SELECT * FROM communities WHERE creator_id = ?', [id]);
@@ -430,7 +461,7 @@ router.get('/:id/demos', async (req, res) => {
   try {
     // First, get the user to know their username
     const user = await getRow('SELECT id, username FROM users WHERE id = ?', [id]);
-    
+
     if (!user) {
       return res.status(404).json({ code: 404, message: 'User not found', data: null });
     }
@@ -451,7 +482,7 @@ router.get('/:id/demos', async (req, res) => {
         LEFT JOIN communities c ON dl.community_id = c.id
         WHERE dl.demo_id = ?
       `, [demo.id]);
-      
+
       const mappedDemo = mapDemoRow(demo);
       mappedDemo.locations = locations.map(loc => ({
         layer: loc.layer,
@@ -459,7 +490,7 @@ router.get('/:id/demos', async (req, res) => {
         communityName: loc.community_name || undefined,
         categoryId: loc.category_id
       }));
-      
+
       demosWithLocations.push(mappedDemo);
     }
 

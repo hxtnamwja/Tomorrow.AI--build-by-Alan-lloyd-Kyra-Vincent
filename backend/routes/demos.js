@@ -82,6 +82,18 @@ const isCommunityMember = async (communityId, userId) => {
   return !!member;
 };
 
+const isCommunityAdmin = async (communityId, userId) => {
+  if (!communityId || !userId) return false;
+  const community = await getRow('SELECT * FROM communities WHERE id = ?', [communityId]);
+  if (community && community.creator_id === userId) return true;
+  
+  const member = await getRow(
+    "SELECT id FROM community_members WHERE community_id = ? AND user_id = ? AND status = 'member' AND role = 'admin'",
+    [communityId, userId]
+  );
+  return !!member;
+};
+
 // Helper to get current user from token
 const getCurrentUser = async (req) => {
   const authHeader = req.headers.authorization;
@@ -132,19 +144,29 @@ router.get('/', async (req, res) => {
     }
   }
 
-  if (layer) {
-    query += ' AND d.layer = ?';
-    params.push(layer);
-  }
-
-  if (communityId) {
-    query += ' AND d.community_id = ?';
-    params.push(communityId);
-  }
-
-  if (categoryId) {
-    query += ' AND d.category_id = ?';
-    params.push(categoryId);
+  // Filter by location (Primary in 'demos' table or Secondary in 'demo_locations' table)
+  if (layer || communityId || categoryId) {
+    let locationQuery = ` AND (
+      (1=1 ${layer ? 'AND d.layer = ?' : ''} ${communityId ? 'AND d.community_id = ?' : ''} ${categoryId ? 'AND d.category_id = ?' : ''})
+      OR EXISTS (
+        SELECT 1 FROM demo_locations dl 
+        WHERE dl.demo_id = d.id 
+        ${layer ? 'AND dl.layer = ?' : ''} 
+        ${communityId ? 'AND dl.community_id = ?' : ''} 
+        ${categoryId ? 'AND dl.category_id = ?' : ''}
+      )
+    )`;
+    query += locationQuery;
+    
+    // Add params for the primary check
+    if (layer) params.push(layer);
+    if (communityId) params.push(communityId);
+    if (categoryId) params.push(categoryId);
+    
+    // Add params for the subquery check
+    if (layer) params.push(layer);
+    if (communityId) params.push(communityId);
+    if (categoryId) params.push(categoryId);
   }
 
   if (search) {
@@ -247,6 +269,11 @@ router.get('/liked/by/:userId', async (req, res) => {
 
 // PATCH /demos/:id/status
 router.patch('/:id/status', async (req, res) => {
+  const user = await getCurrentUser(req);
+  if (!user) {
+    return res.status(401).json({ code: 401, message: 'Unauthorized', data: null });
+  }
+
   const { status, rejectionReason } = req.body;
   
   try {
@@ -255,6 +282,18 @@ router.patch('/:id/status', async (req, res) => {
     
     if (!oldDemo) {
       return res.status(404).json({ code: 404, message: 'Demo not found', data: null });
+    }
+
+    // Permission check
+    let hasPermission = false;
+    if (user.role === 'general_admin') {
+      hasPermission = true;
+    } else if (oldDemo.layer === 'community' && oldDemo.community_id) {
+      hasPermission = await isCommunityAdmin(oldDemo.community_id, user.id);
+    }
+
+    if (!hasPermission) {
+      return res.status(403).json({ code: 403, message: 'Forbidden: You do not have permission to review this demo', data: null });
     }
     
     const result = await runQuery(`
@@ -307,9 +346,30 @@ router.patch('/:id/status', async (req, res) => {
 
 // PATCH /demos/:id/cover
 router.patch('/:id/cover', async (req, res) => {
+  const user = await getCurrentUser(req);
+  if (!user) {
+    return res.status(401).json({ code: 401, message: 'Unauthorized', data: null });
+  }
+
   const { thumbnailUrl } = req.body;
   
   try {
+    const demo = await getRow('SELECT * FROM demos WHERE id = ?', [req.params.id]);
+    if (!demo) {
+      return res.status(404).json({ code: 404, message: 'Demo not found', data: null });
+    }
+
+    // Permission check
+    const isOwner = demo.creator_id === user.id;
+    let isAdmin = user.role === 'general_admin';
+    if (!isAdmin && demo.layer === 'community' && demo.community_id) {
+      isAdmin = await isCommunityAdmin(demo.community_id, user.id);
+    }
+
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ code: 403, message: 'Forbidden: You do not have permission to edit this demo', data: null });
+    }
+
     const result = await runQuery('UPDATE demos SET thumbnail_url = ? WHERE id = ?', 
       [thumbnailUrl, req.params.id]);
     
@@ -317,8 +377,8 @@ router.patch('/:id/cover', async (req, res) => {
       return res.status(404).json({ code: 404, message: 'Demo not found', data: null });
     }
     
-    const demo = await getRow('SELECT * FROM demos WHERE id = ?', [req.params.id]);
-    res.json({ code: 200, message: 'Success', data: mapDemoRow(demo) });
+    const updatedDemo = await getRow('SELECT * FROM demos WHERE id = ?', [req.params.id]);
+    res.json({ code: 200, message: 'Success', data: mapDemoRow(updatedDemo) });
   } catch (error) {
     console.error('Error updating demo cover:', error);
     res.status(500).json({ code: 500, message: 'Server error', data: null });
@@ -339,7 +399,10 @@ router.delete('/:id', async (req, res) => {
     }
     
     const isOwner = demo.creator_id === user.id;
-    const isAdmin = user.role === 'general_admin';
+    let isAdmin = user.role === 'general_admin';
+    if (!isAdmin && demo.layer === 'community' && demo.community_id) {
+      isAdmin = await isCommunityAdmin(demo.community_id, user.id);
+    }
     
     if (!isOwner && !isAdmin) {
       return res.status(403).json({ code: 403, message: 'Not authorized', data: null });
@@ -412,7 +475,10 @@ router.patch('/:id/tags', async (req, res) => {
     }
     
     const isOwner = demo.creator_id === user.id;
-    const isAdmin = user.role === 'general_admin';
+    let isAdmin = user.role === 'general_admin';
+    if (!isAdmin && demo.layer === 'community' && demo.community_id) {
+      isAdmin = await isCommunityAdmin(demo.community_id, user.id);
+    }
     
     if (!isOwner && !isAdmin) {
       return res.status(403).json({ code: 403, message: 'Not authorized to update tags', data: null });

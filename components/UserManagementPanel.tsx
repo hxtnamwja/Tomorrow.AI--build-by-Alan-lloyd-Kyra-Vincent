@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { User, UserRole, User as UserType, Community } from '../types';
-import { UserCircle, ShieldCheck, Ban, CheckCircle, Edit3, X, Search, Award, Star, BookOpen, FlaskConical, Beaker, Trophy } from 'lucide-react';
+import { UserCircle, ShieldCheck, Ban, CheckCircle, Edit3, X, Search, Award, Star, BookOpen, FlaskConical, Beaker, Trophy, Shield } from 'lucide-react';
 import { StorageService } from '../services/storageService';
+import { CommunitiesAPI, UsersAPI } from '../services/apiService';
 import { calculateLevel, getLevelInfo, LEVEL_CONFIG } from '../constants';
 
 // Level icon component
@@ -26,6 +27,7 @@ const LevelIcon = ({ iconKey, className, color }: { iconKey: string, className?:
 
 interface UserManagementPanelProps {
   currentUserRole: UserRole;
+  currentUserId: string;
   activeCommunity?: Community;
   onClose: () => void;
   onViewUserProfile?: (userId: string) => void;
@@ -33,6 +35,7 @@ interface UserManagementPanelProps {
 
 export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
   currentUserRole,
+  currentUserId,
   activeCommunity,
   onClose,
   onViewUserProfile
@@ -129,6 +132,33 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
       setIsEditPointsModalOpen(false);
     } catch (error: any) {
       alert(`修改失败: ${error.message}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Can the current user manage users (points, ban, roles)?
+  const canManageUsers = activeCommunity 
+    ? (activeCommunity.creatorId === currentUserId || currentUserRole === 'general_admin')
+    : currentUserRole === 'general_admin';
+
+  const handleToggleAdmin = async (user: UserType) => {
+    setActionLoading(true);
+    try {
+      if (activeCommunity) {
+        const isCurrentlyAdmin = (activeCommunity.adminMembers || []).includes(user.id);
+        const newRole = isCurrentlyAdmin ? 'member' : 'admin';
+        await CommunitiesAPI.setMemberRole(activeCommunity.id, user.id, newRole);
+        alert(newRole === 'admin' ? `已将 ${user.username} 设为分管理员` : `已撤销 ${user.username} 的管理员权限`);
+      } else {
+        const isCurrentlyAdmin = user.role === 'general_admin';
+        const newRole = isCurrentlyAdmin ? 'user' : 'general_admin';
+        await UsersAPI.setRole(user.id, newRole);
+        alert(newRole === 'general_admin' ? `已将 ${user.username} 设为总管理员` : `已撤销 ${user.username} 的管理员权限`);
+      }
+      await loadUsers();
+    } catch (error: any) {
+      alert(`操作失败: ${error.message}`);
     } finally {
       setActionLoading(false);
     }
@@ -241,8 +271,23 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
                     </div>
 
                     <div className="flex items-center gap-2">
+                      {/* Promote/demote sub-admin button - for site or community view */}
+                      {canManageUsers && user.id !== currentUserId && (
+                        <button
+                          onClick={() => handleToggleAdmin(user)}
+                          disabled={actionLoading}
+                          className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1.5 ${
+                            (activeCommunity ? (activeCommunity.adminMembers || []).includes(user.id) : user.role === 'general_admin')
+                              ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                              : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                          }`}
+                        >
+                          <Shield className="w-4 h-4" />
+                          {(activeCommunity ? (activeCommunity.adminMembers || []).includes(user.id) : user.role === 'general_admin') ? '撤销管理' : '设为管理'}
+                        </button>
+                      )}
                       {/* Edit points button - available to general admin and community admins */}
-                      {user.role !== 'general_admin' && (
+                      {canManageUsers && user.role !== 'general_admin' && (
                         <button
                           onClick={() => handleEditPoints(user)}
                           disabled={actionLoading}
@@ -253,7 +298,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
                         </button>
                       )}
                       {/* Ban/unban buttons - only for general admin or community admin in community view */}
-                      {user.role !== 'general_admin' && (
+                      {canManageUsers && user.role !== 'general_admin' && (
                         <>
                           {user.isBanned ? (
                             <button

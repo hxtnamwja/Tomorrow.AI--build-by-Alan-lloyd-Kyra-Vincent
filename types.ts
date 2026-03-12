@@ -96,6 +96,7 @@ export interface Community {
   status: 'pending' | 'approved' | 'rejected';
   members: string[]; // List of User IDs who are members
   pendingMembers: string[]; // List of User IDs asking to join
+  adminMembers: string[]; // List of User IDs who are sub-admins
   type: CommunityType; // 'open' or 'closed'
   createdAt: number;
 }

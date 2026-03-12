@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Target, Globe, Users, Check, Upload, FileCode, Play, Image, X, FolderOpen, FileText, Sparkles, CheckCircle2, Database, Users2, RefreshCw, Zap, Bot } from 'lucide-react';
+import { Target, Globe, Users, Check, Upload, FileCode, Play, Image, X, FolderOpen, FileText, Sparkles, CheckCircle2, Database, Users2, RefreshCw, Zap, Bot, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Demo, Category, Subject, Bounty, Layer, Community } from '../types';
 import { AiService, GeneratedProject } from '../services/aiService';
 import { TagSelector } from './TagSelector';
@@ -19,7 +19,128 @@ interface SelectedFeatures {
   multiplayer: boolean;
 }
 
-export const UploadWizard = ({ t, categories, communities, currentUserId, role, onSubmit, onCancel, bountyContext }: { 
+const CategorySelector = ({ categories, value, onChange, t, layer, communityId }: { 
+  categories: Category[], 
+  value: string, 
+  onChange: (id: string) => void, 
+  t: any,
+  layer: string,
+  communityId?: string
+}) => {
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const toggleExpand = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newExpanded = new Set(expandedIds);
+    if (newExpanded.has(id)) {
+      newExpanded.delete(id);
+    } else {
+      newExpanded.add(id);
+    }
+    setExpandedIds(newExpanded);
+  };
+
+  const filteredCategories = React.useMemo(() => {
+    let base = categories;
+    if (layer === 'general') {
+      base = base.filter(c => !c.communityId);
+    } else {
+      base = base.filter(c => c.communityId === communityId);
+    }
+    return base;
+  }, [categories, layer, communityId]);
+
+  const searchResults = React.useMemo(() => {
+    if (!searchTerm.trim()) return [];
+    const lowerTerm = searchTerm.toLowerCase();
+    return filteredCategories.filter(c => c.name.toLowerCase().includes(lowerTerm));
+  }, [filteredCategories, searchTerm]);
+
+  const renderCategory = (cat: Category, depth: number) => {
+    const children = filteredCategories.filter(c => c.parentId === cat.id);
+    const hasChildren = children.length > 0;
+    const isExpanded = expandedIds.has(cat.id);
+    const isSelected = value === cat.id;
+
+    return (
+      <React.Fragment key={cat.id}>
+        <div 
+          onClick={() => onChange(cat.id)}
+          className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-all hover:bg-slate-50 mb-1 ${isSelected ? 'bg-indigo-50 border-indigo-200 border text-indigo-700' : 'border border-transparent'}`}
+          style={{ marginLeft: `${depth * 20}px` }}
+        >
+          {hasChildren ? (
+            <button 
+              onClick={(e) => toggleExpand(cat.id, e)}
+              className="p-1 hover:bg-slate-200 rounded transition-colors"
+            >
+              <ChevronRight className={`w-3.5 h-3.5 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`} />
+            </button>
+          ) : (
+            <div className="w-5.5" />
+          )}
+          <span className="text-sm font-medium flex-1 truncate">{cat.name}</span>
+          {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600" />}
+        </div>
+        {hasChildren && isExpanded && children.map(child => renderCategory(child, depth + 1))}
+      </React.Fragment>
+    );
+  };
+
+  const rootCategories = filteredCategories.filter(c => !c.parentId);
+
+  return (
+    <div className="space-y-3">
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+        <input
+          type="text"
+          placeholder={t('searchCategory') || '搜索分类...'}
+          value={searchTerm}
+          onChange={e => setSearchTerm(e.target.value)}
+          className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all focus:bg-white"
+        />
+        {searchTerm && (
+          <button 
+            onClick={() => setSearchTerm('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
+      <div className="max-h-[300px] overflow-y-auto pr-1 py-1 custom-scrollbar">
+        {searchTerm ? (
+          searchResults.map(cat => renderCategory(cat, 0))
+        ) : (
+          rootCategories.map(cat => renderCategory(cat, 0))
+        )}
+        {(searchTerm ? searchResults : rootCategories).length === 0 && (
+           <div className="py-10 text-center bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+             <p className="text-slate-400 text-sm italic">{t('noCategoriesFound') || '暂无符合条件的分类'}</p>
+          </div>
+        )}
+      </div>
+      
+      {value && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 rounded-lg text-xs text-emerald-700 border border-emerald-100 animate-in slide-in-from-top-2">
+          <CheckCircle2 className="w-3.5 h-3.5" />
+          <span className="font-medium">当前选中: {categories.find(c => c.id === value)?.name}</span>
+          <button 
+            onClick={() => onChange('')}
+            className="ml-auto text-emerald-400 hover:text-emerald-600 font-bold"
+          >
+            {t('clearSelection') || '清除'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export const UploadWizard = ({ t, categories, communities, currentUserId, role, onSubmit, onCancel, bountyContext, initialContext }: { 
   t: any, 
   categories: Category[], 
   communities: Community[],
@@ -27,9 +148,10 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
   role: string,
   onSubmit: (d: Demo) => void, 
   onCancel: () => void,
-  bountyContext: Bounty | null
+  bountyContext: Bounty | null,
+  initialContext?: { layer: Layer; communityId?: string; categoryId?: string } | null;
 }) => {
-  const [step, setStep] = useState(bountyContext ? 2 : 0);
+  const [step, setStep] = useState(bountyContext ? 2 : (initialContext ? 1 : 0));
   const [isPlayground, setIsPlayground] = useState(false);
   const [editorMode, setEditorMode] = useState('upload' as 'upload' | 'paste');
   const [projectMode, setProjectMode] = useState('single' as 'single' | 'multi');
@@ -42,9 +164,9 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
     title: bountyContext?.programTitle || '',
     description: bountyContext?.programDescription || '',
     author: '',
-    categoryId: bountyContext?.publishCategoryId || '',
-    layer: (bountyContext ? bountyContext.publishLayer : 'general') as Layer,
-    communityId: bountyContext?.publishCommunityId || undefined,
+    categoryId: bountyContext?.publishCategoryId || initialContext?.categoryId || '',
+    layer: (bountyContext ? bountyContext.publishLayer : (initialContext ? initialContext.layer : 'general')) as Layer,
+    communityId: bountyContext?.publishCommunityId || initialContext?.communityId,
     code: '',
     thumbnailUrl: '',
     tags: bountyContext?.programTags || [] as string[]
@@ -81,17 +203,17 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
         thumbnailUrl: '',
         tags: bountyContext.programTags || [] as string[]
       });
+    } else if (initialContext) {
+      setStep(1);
+      setFormData(prev => ({
+        ...prev,
+        layer: initialContext.layer,
+        communityId: initialContext.communityId,
+        categoryId: initialContext.categoryId || ''
+      }));
     }
-  }, [bountyContext]);
+  }, [bountyContext, initialContext]);
 
-  const availableCategories = React.useMemo(() => {
-    if (formData.layer === 'general') {
-      return categories.filter(c => !c.communityId && !c.parentId).map(c => ({ id: c.id, name: c.name }));
-    } else if (formData.layer === 'community' && formData.communityId) {
-      return categories.filter(c => c.communityId === formData.communityId).map(c => ({ id: c.id, name: c.name }));
-    }
-    return [];
-  }, [formData.layer, formData.communityId, categories]);
 
   const handleThumbnailUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -680,23 +802,17 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
                />
              </div>
-             
-             <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">{t('subjectLabel')}</label>
-                <select 
-                  value={formData.categoryId} 
-                  onChange={e => setFormData({...formData, categoryId: e.target.value})}
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
-                >
-                  <option value="">{t('selectCategory')}</option>
-                  {availableCategories.map(c => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-                {availableCategories.length === 0 && (
-                    <p className="text-xs text-red-500 mt-1">{t('noCategoriesFound')}</p>
-                )}
-             </div>
+                          <div>
+                 <label className="block text-sm font-bold text-slate-700 mb-2">{t('subjectLabel')}</label>
+                 <CategorySelector
+                   categories={categories}
+                   value={formData.categoryId}
+                   onChange={(id) => setFormData({...formData, categoryId: id})}
+                   t={t}
+                   layer={formData.layer}
+                   communityId={formData.communityId}
+                 />
+              </div>
 
              <div>
                <label className="block text-sm font-medium text-slate-700 mb-1">{t('descLabel')}</label>

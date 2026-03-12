@@ -106,9 +106,21 @@ export const PublishToCommunityModal = ({
     }
   }, [isOpen]);
 
+  // Build a hierarchical flat list with depth-based indentation
+  const buildHierarchicalOptions = (cats: Category[], parentId: string | null | undefined, depth: number): Category[] => {
+    const children = cats.filter(c => (c.parentId || null) === (parentId || null));
+    const result: Category[] = [];
+    for (const child of children) {
+      const prefix = depth > 0 ? '\u00A0\u00A0'.repeat(depth) + '└ ' : '';
+      result.push({ ...child, name: prefix + child.name });
+      result.push(...buildHierarchicalOptions(cats, child.id, depth + 1));
+    }
+    return result;
+  };
+
   const filteredCategories = selectedLayer === 'community' && selectedCommunityId
-    ? categories.filter(c => c.communityId === selectedCommunityId)
-    : categories.filter(c => !c.communityId && !c.parentId);
+    ? buildHierarchicalOptions(categories.filter(c => c.communityId === selectedCommunityId), null, 0)
+    : buildHierarchicalOptions(categories.filter(c => !c.communityId), null, 0);
 
   if (!isOpen || !demo) return null;
 

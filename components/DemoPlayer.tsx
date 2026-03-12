@@ -858,22 +858,30 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
   const handleLike = async () => {
     if (!canLike || likeLoading) return;
     setLikeLoading(true);
+    
+    // Optimsitic UI
+    const prevLiked = userLiked;
+    const prevCount = likeCount;
+    setUserLiked(!prevLiked);
+    setLikeCount(prevLiked ? prevCount - 1 : prevCount + 1);
+
     try {
-      if (userLiked) {
+      if (prevLiked) {
         const result = await DemosAPI.unlike(demo.id);
+        // Sync with server if needed
         setLikeCount(result.count);
-        setUserLiked(false);
-        // Notify parent component
         onLikeChange?.(demo.id, result.count, false);
       } else {
         const result = await DemosAPI.like(demo.id);
+        // Sync with server if needed
         setLikeCount(result.count);
-        setUserLiked(true);
-        // Notify parent component
         onLikeChange?.(demo.id, result.count, true);
       }
     } catch (error) {
       console.error('Error toggling like:', error);
+      // Revert Optimistic UI if failed
+      setUserLiked(prevLiked);
+      setLikeCount(prevCount);
     } finally {
       setLikeLoading(false);
     }

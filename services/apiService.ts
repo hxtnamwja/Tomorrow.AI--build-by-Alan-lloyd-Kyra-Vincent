@@ -24,8 +24,10 @@ const apiRequest = async <T>(
   options: RequestInit = {},
   cacheEnabled: boolean = true
 ): Promise<{ code: number; message: string; data: T }> => {
-  // 检查缓存
-  if (cacheEnabled && options.method !== 'POST' && options.method !== 'PUT' && options.method !== 'DELETE') {
+  const method = options.method || 'GET';
+  
+  // 仅对 GET 请求使用缓存
+  if (cacheEnabled && method === 'GET') {
     const cacheKey = generateCacheKey(endpoint, options);
     const cached = apiCache.get(cacheKey);
     if (cached && (Date.now() - cached.timestamp) < CACHE_EXPIRY) {
@@ -48,6 +50,7 @@ const apiRequest = async <T>(
   const response = await fetch(url, {
     ...options,
     headers,
+    cache: 'no-store', // 绕过浏览器缓存，确保获取最新数据
   });
   
   if (!response.ok) {
@@ -55,10 +58,15 @@ const apiRequest = async <T>(
     throw new Error(error.message || `HTTP ${response.status}`);
   }
   
+  // 变更操作后自动清除缓存
+  if (method !== 'GET') {
+    clearCache();
+  }
+  
   const data = await response.json();
   
   // 缓存响应
-  if (cacheEnabled && options.method !== 'POST' && options.method !== 'PUT' && options.method !== 'DELETE') {
+  if (cacheEnabled && method === 'GET') {
     const cacheKey = generateCacheKey(endpoint, options);
     apiCache.set(cacheKey, { data, timestamp: Date.now() });
   }
@@ -67,8 +75,19 @@ const apiRequest = async <T>(
 };
 
 // 清除缓存
-const clearCache = () => {
+export const clearCache = () => {
   apiCache.clear();
+};
+
+// 特定接口清除缓存
+export const invalidateCache = (prefix: string) => {
+  const keysToDelete: string[] = [];
+  apiCache.forEach((_, key) => {
+    if (key.includes(prefix)) {
+      keysToDelete.push(key);
+    }
+  });
+  keysToDelete.forEach(key => apiCache.delete(key));
 };
 
 // Auth API
@@ -405,6 +424,13 @@ export const CommunitiesAPI = {
       method: 'POST',
     });
   },
+
+  setMemberRole: async (communityId: string, userId: string, role: 'admin' | 'member'): Promise<void> => {
+    await apiRequest<void>(`/communities/${communityId}/members/${userId}/role`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+    });
+  },
 };
 
 // Categories API
@@ -427,6 +453,14 @@ export const CategoriesAPI = {
     const result = await apiRequest<Category>('/categories', {
       method: 'POST',
       body: JSON.stringify({ name, parentId, communityId }),
+    });
+    return result.data;
+  },
+
+  update: async (id: string, name: string): Promise<Category> => {
+    const result = await apiRequest<Category>(`/categories/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
     });
     return result.data;
   },
@@ -556,6 +590,13 @@ export const UsersAPI = {
   unban: async (id: string): Promise<void> => {
     await apiRequest<void>(`/users/${id}/unban`, {
       method: 'PUT',
+    });
+  },
+
+  setRole: async (id: string, role: string): Promise<void> => {
+    await apiRequest<void>(`/users/${id}/role`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
     });
   },
 

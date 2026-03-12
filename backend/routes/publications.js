@@ -43,7 +43,13 @@ const isCommunityMember = async (communityId, userId) => {
 
 const isCommunityAdmin = async (communityId, userId) => {
   const community = await getRow('SELECT * FROM communities WHERE id = ?', [communityId]);
-  return community && community.creator_id === userId;
+  if (community && community.creator_id === userId) return true;
+  
+  const member = await getRow(
+    "SELECT id FROM community_members WHERE community_id = ? AND user_id = ? AND status = 'member' AND role = 'admin'",
+    [communityId, userId]
+  );
+  return !!member;
 };
 
 // POST /publications - Request to publish a demo to another community/layer
@@ -146,8 +152,12 @@ router.get('/pending', async (req, res) => {
   const params = [];
 
   if (user.role !== 'general_admin') {
-    query += ' AND (p.layer = ? OR (p.layer = ? AND p.community_id IN (SELECT id FROM communities WHERE creator_id = ?)))';
-    params.push('general', 'community', user.id);
+    query += ` AND p.layer = ? AND p.community_id IN (
+      SELECT id FROM communities WHERE creator_id = ?
+      UNION
+      SELECT community_id FROM community_members WHERE user_id = ? AND role = ? AND status = ?
+    )`;
+    params.push('community', user.id, user.id, 'admin', 'member');
   }
 
   query += ' ORDER BY p.requested_at DESC';
