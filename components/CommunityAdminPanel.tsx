@@ -1,6 +1,8 @@
-import React, { useState, useMemo } from 'react';
-import { X, Users, Settings, Trash2, UserCheck, UserX, LogOut, Building2, ShieldCheck, Globe } from 'lucide-react';
-import { Community, UserRole } from '../types';
+import React, { useState, useEffect } from 'react';
+import { X, Users, Settings, Trash2, UserCheck, UserX, LogOut, Building2, ShieldCheck, Globe, Crown } from 'lucide-react';
+import { Community, UserRole, User } from '../types';
+import { CommunitiesAPI } from '../services/apiService';
+import { StorageService } from '../services/storageService';
 
 interface CommunityAdminPanelProps {
   community: Community;
@@ -10,6 +12,7 @@ interface CommunityAdminPanelProps {
   onUpdateCommunity: (community: Community) => void;
   onDeleteCommunity: (communityId: string) => void;
   onManageMember: (commId: string, memberId: string, action: 'accept' | 'kick' | 'reject_request') => void;
+  onRefresh: () => void;
   t: (key: string) => string;
 }
 
@@ -21,6 +24,7 @@ export const CommunityAdminPanel: React.FC<CommunityAdminPanelProps> = ({
   onUpdateCommunity,
   onDeleteCommunity,
   onManageMember,
+  onRefresh,
   t
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'members' | 'requests'>('overview');
@@ -30,6 +34,15 @@ export const CommunityAdminPanel: React.FC<CommunityAdminPanelProps> = ({
   const [isEditingInfo, setIsEditingInfo] = useState(false);
   const [editName, setEditName] = useState(community.name);
   const [editDescription, setEditDescription] = useState(community.description || '');
+  const [users, setUsers] = useState<Map<string, User>>(new Map());
+  const [loadingUsers, setLoadingUsers] = useState(true);
+  
+  // Check if current user is creator, general admin, or sub-admin
+  const isCreator = community.creatorId === currentUserId;
+  const isGeneralAdmin = currentUserRole === 'general_admin';
+  const isSubAdmin = community.adminMembers?.includes(currentUserId);
+  const isFullAdmin = isCreator || isGeneralAdmin;
+  const isAnyAdmin = isFullAdmin || isSubAdmin;
   
   const handleToggleCommunityType = () => {
     const newType = community.type === 'open' ? 'closed' : 'open';
@@ -52,14 +65,52 @@ export const CommunityAdminPanel: React.FC<CommunityAdminPanelProps> = ({
     setIsEditingInfo(false);
   };
 
-  // Check if current user is the community creator, a general admin, or a community sub-admin
-  const isAdmin = community.creatorId === currentUserId || 
-                  currentUserRole === 'general_admin' || 
-                  (community.adminMembers && community.adminMembers.includes(currentUserId));
+  // Load user information
+  useEffect(() => {
+    const loadUsers = async () => {
+      setLoadingUsers(true);
+      const userMap = new Map<string, User>();
+      
+      try {
+        // Load all members and pending members
+        const allUserIds = [...new Set([
+          ...community.members,
+          ...community.pendingMembers,
+          community.creatorId,
+          ...(community.adminMembers || [])
+        ])];
+        
+        for (const userId of allUserIds) {
+          try {
+            const user = await StorageService.getUserById(userId);
+            if (user) {
+              userMap.set(userId, user);
+            }
+          } catch (e) {
+            console.error('Failed to load user:', userId, e);
+          }
+        }
+        
+        setUsers(userMap);
+      } catch (error) {
+        console.error('Failed to load users:', error);
+      } finally {
+        setLoadingUsers(false);
+      }
+    };
+    
+    loadUsers();
+  }, [community]);
 
   // Get all members info (in real app, you'd fetch user details)
   const memberCount = community.members.length;
   const pendingCount = community.pendingMembers.length;
+  
+  // Helper to get user display name
+  const getUserName = (userId: string) => {
+    const user = users.get(userId);
+    return user ? user.username : `用户 ${userId.slice(0, 8)}...`;
+  };
 
   // Handle approve/reject join requests
   const handleApproveRequest = async (userId: string) => {
@@ -94,6 +145,23 @@ export const CommunityAdminPanel: React.FC<CommunityAdminPanelProps> = ({
     }
   };
 
+  // Handle toggle admin role
+  const handleToggleAdmin = async (userId: string) => {
+    if (userId === community.creatorId) {
+      alert('不能更改社区创建者的角色');
+      return;
+    }
+    try {
+      const isAdmin = community.adminMembers?.includes(userId);
+      const newRole = isAdmin ? 'member' : 'admin';
+      await CommunitiesAPI.setMemberRole(community.id, userId, newRole);
+      await onRefresh();
+    } catch (error) {
+      console.error('Failed to toggle admin role:', error);
+      alert('设置管理员失败');
+    }
+  };
+
   // Handle delete community
   const handleDeleteCommunity = () => {
     if (deleteConfirmText !== community.name) {
@@ -104,7 +172,7 @@ export const CommunityAdminPanel: React.FC<CommunityAdminPanelProps> = ({
     onClose();
   };
 
-  if (!isAdmin) {
+  if (!isAnyAdmin) {
     return (
       <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl p-8 max-w-md w-full">
@@ -350,45 +418,73 @@ export const CommunityAdminPanel: React.FC<CommunityAdminPanelProps> = ({
           {activeTab === 'members' && (
             <div className="space-y-4">
               <h3 className="text-lg font-bold text-slate-800 mb-4">社区成员</h3>
-              {community.members.length === 0 ? (
+              {loadingUsers ? (
+                <div className="text-center py-8 text-slate-500">
+                  <div className="w-8 h-8 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin mx-auto mb-3" />
+                  <p>加载中...</p>
+                </div>
+              ) : community.members.length === 0 ? (
                 <div className="text-center py-8 text-slate-500">
                   <Users className="w-12 h-12 mx-auto mb-3 opacity-30" />
                   <p>暂无成员</p>
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {community.members.map((memberId) => (
-                    <div
-                      key={memberId}
-                      className="flex items-center justify-between p-4 bg-slate-50 rounded-lg"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center">
-                          <Users className="w-5 h-5 text-indigo-600" />
+                  {community.members.map((memberId) => {
+                    const isAdmin = community.adminMembers?.includes(memberId);
+                    return (
+                      <div
+                        key={memberId}
+                        className="flex items-center justify-between p-4 bg-slate-50 rounded-lg"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center">
+                            <Users className="w-5 h-5 text-indigo-600" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-slate-800">
+                              {getUserName(memberId)}
+                              {memberId === community.creatorId && (
+                                <span className="ml-2 text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded">
+                                  创建者
+                                </span>
+                              )}
+                              {isAdmin && memberId !== community.creatorId && (
+                                <span className="ml-2 text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded flex items-center gap-1">
+                                  <Crown className="w-3 h-3" />
+                                  管理员
+                                </span>
+                              )}
+                            </p>
+                            <p className="text-sm text-slate-500">ID: {memberId}</p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-medium text-slate-800">
-                            用户 {memberId.slice(0, 8)}...
-                            {memberId === community.creatorId && (
-                              <span className="ml-2 text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded">
-                                创建者
-                              </span>
-                            )}
-                          </p>
-                          <p className="text-sm text-slate-500">ID: {memberId}</p>
-                        </div>
+                        {/* 只有创建者和总管理员可以操作用户列表，分管理员不行 */}
+                        {memberId !== community.creatorId && (isCreator || isGeneralAdmin) && (
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleToggleAdmin(memberId)}
+                              className={`p-2 rounded-lg transition-colors ${
+                                isAdmin 
+                                  ? 'text-yellow-600 hover:bg-yellow-100' 
+                                  : 'text-slate-400 hover:text-yellow-600 hover:bg-yellow-50'
+                              }`}
+                              title={isAdmin ? '取消管理员' : '设为管理员'}
+                            >
+                              <Crown className="w-5 h-5" />
+                            </button>
+                            <button
+                              onClick={() => handleRemoveMember(memberId)}
+                              className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                              title="移除成员"
+                            >
+                              <UserX className="w-5 h-5" />
+                            </button>
+                          </div>
+                        )}
                       </div>
-                      {memberId !== community.creatorId && (
-                        <button
-                          onClick={() => handleRemoveMember(memberId)}
-                          className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                          title="移除成员"
-                        >
-                          <UserX className="w-5 h-5" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -397,7 +493,12 @@ export const CommunityAdminPanel: React.FC<CommunityAdminPanelProps> = ({
           {activeTab === 'requests' && (
             <div className="space-y-4">
               <h3 className="text-lg font-bold text-slate-800 mb-4">加入申请</h3>
-              {community.pendingMembers.length === 0 ? (
+              {loadingUsers ? (
+                <div className="text-center py-8 text-slate-500">
+                  <div className="w-8 h-8 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin mx-auto mb-3" />
+                  <p>加载中...</p>
+                </div>
+              ) : community.pendingMembers.length === 0 ? (
                 <div className="text-center py-8 text-slate-500">
                   <UserCheck className="w-12 h-12 mx-auto mb-3 opacity-30" />
                   <p>暂无待审核申请</p>
@@ -415,27 +516,30 @@ export const CommunityAdminPanel: React.FC<CommunityAdminPanelProps> = ({
                         </div>
                         <div>
                           <p className="font-medium text-slate-800">
-                            用户 {userId.slice(0, 8)}...
+                            {getUserName(userId)}
                           </p>
                           <p className="text-sm text-slate-500">ID: {userId}</p>
                         </div>
                       </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleApproveRequest(userId)}
-                          className="p-2 text-green-600 hover:bg-green-100 rounded-lg transition-colors"
-                          title="同意加入"
-                        >
-                          <UserCheck className="w-5 h-5" />
-                        </button>
-                        <button
-                          onClick={() => handleRejectRequest(userId)}
-                          className="p-2 text-red-600 hover:bg-red-100 rounded-lg transition-colors"
-                          title="拒绝加入"
-                        >
-                          <UserX className="w-5 h-5" />
-                        </button>
-                      </div>
+                      {/* 只有创建者和总管理员可以处理申请，分管理员不行 */}
+                      {(isCreator || isGeneralAdmin) && (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleApproveRequest(userId)}
+                            className="p-2 text-green-600 hover:bg-green-100 rounded-lg transition-colors"
+                            title="同意加入"
+                          >
+                            <UserCheck className="w-5 h-5" />
+                          </button>
+                          <button
+                            onClick={() => handleRejectRequest(userId)}
+                            className="p-2 text-red-600 hover:bg-red-100 rounded-lg transition-colors"
+                            title="拒绝加入"
+                          >
+                            <UserX className="w-5 h-5" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

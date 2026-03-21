@@ -75,6 +75,7 @@ const SEED_DEMOS: Demo[] = [
 </body>
 </html>`,
     author: 'Dr. Smith',
+    creatorId: 'system',
     status: 'published',
     createdAt: Date.now(),
   }
@@ -253,7 +254,12 @@ export const StorageService = {
   getDemosByLayer: async (layer: string, communityId?: string): Promise<Demo[]> => {
     try {
       // Get all demos for the layer (including pending for admin review)
-      return await DemosAPI.getAll({ layer, communityId });
+      // Only pass communityId if it's a valid string
+      const params: any = { layer };
+      if (communityId && communityId.trim() !== '') {
+        params.communityId = communityId;
+      }
+      return await DemosAPI.getAll(params);
     } catch (error) {
       console.error('Error fetching demos by layer:', error);
       return [];
@@ -269,7 +275,16 @@ export const StorageService = {
     status?: string;
   }): Promise<Demo[]> => {
     try {
-      return await DemosAPI.getAllSortedByLikes(params);
+      // Filter out undefined/null values from params
+      const cleanParams: any = {};
+      if (params) {
+        Object.entries(params).forEach(([key, value]) => {
+          if (value !== undefined && value !== null && value !== '') {
+            cleanParams[key] = value;
+          }
+        });
+      }
+      return await DemosAPI.getAllSortedByLikes(cleanParams);
     } catch (error) {
       console.error('Error fetching demos sorted by likes:', error);
       return [];
@@ -321,6 +336,12 @@ export const StorageService = {
 
   deleteCategory: async (id: string) => {
     await CategoriesAPI.delete(id);
+  },
+
+  updateCategory: async (id: string, updates: Partial<Category>) => {
+    if (updates.name) {
+      await CategoriesAPI.update(id, updates.name);
+    }
   },
 
   // --- Bounties ---

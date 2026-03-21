@@ -1,7 +1,7 @@
 
 export type Language = 'en' | 'cn';
 
-export type UserRole = 'user' | 'general_admin';
+export type UserRole = 'user' | 'general_admin' | 'site_sub_admin';
 
 export type Layer = 'general' | 'community';
 

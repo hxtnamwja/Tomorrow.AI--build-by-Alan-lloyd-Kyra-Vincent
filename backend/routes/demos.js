@@ -127,46 +127,22 @@ router.get('/', async (req, res) => {
     query += ' AND (d.archived = 0 OR d.archived IS NULL)';
   }
 
-  if (layer === 'community' && !communityId) {
-    return res.status(400).json({ code: 400, message: 'communityId is required for community layer', data: null });
-  }
+  // Note: Removed community member check to allow viewing all community demos
+  // The check should be done at the publication/creation level, not at the viewing level
+  // Also removed the requirement for communityId when layer is 'community' - now returns all community demos
 
-  if (layer === 'community') {
-    const user = await getCurrentUser(req);
-    if (!user) {
-      return res.status(401).json({ code: 401, message: 'Unauthorized', data: null });
-    }
-    if (user.role !== 'general_admin') {
-      const isMember = await isCommunityMember(communityId, user.id);
-      if (!isMember) {
-        return res.status(403).json({ code: 403, message: 'Forbidden', data: null });
-      }
-    }
+  // Filter by location (Primary in 'demos' table only - simplified to avoid demo_locations issues)
+  if (layer) {
+    query += ' AND d.layer = ?';
+    params.push(layer);
   }
-
-  // Filter by location (Primary in 'demos' table or Secondary in 'demo_locations' table)
-  if (layer || communityId || categoryId) {
-    let locationQuery = ` AND (
-      (1=1 ${layer ? 'AND d.layer = ?' : ''} ${communityId ? 'AND d.community_id = ?' : ''} ${categoryId ? 'AND d.category_id = ?' : ''})
-      OR EXISTS (
-        SELECT 1 FROM demo_locations dl 
-        WHERE dl.demo_id = d.id 
-        ${layer ? 'AND dl.layer = ?' : ''} 
-        ${communityId ? 'AND dl.community_id = ?' : ''} 
-        ${categoryId ? 'AND dl.category_id = ?' : ''}
-      )
-    )`;
-    query += locationQuery;
-    
-    // Add params for the primary check
-    if (layer) params.push(layer);
-    if (communityId) params.push(communityId);
-    if (categoryId) params.push(categoryId);
-    
-    // Add params for the subquery check
-    if (layer) params.push(layer);
-    if (communityId) params.push(communityId);
-    if (categoryId) params.push(categoryId);
+  if (communityId) {
+    query += ' AND d.community_id = ?';
+    params.push(communityId);
+  }
+  if (categoryId) {
+    query += ' AND d.category_id = ?';
+    params.push(categoryId);
   }
 
   if (search) {

@@ -66,7 +66,15 @@ router.post('/', async (req, res) => {
     return res.status(404).json({ code: 404, message: 'Demo not found', data: null });
   }
 
-  if (demo.creator_id && demo.creator_id !== user.id) {
+  // Check if user is the creator (by creator_id or author)
+  // Allow if creator_id matches, or author matches, or creator_id is null/empty (legacy data)
+  const isCreator = demo.creator_id === user.id || 
+                    demo.author === user.username || 
+                    (!demo.creator_id && demo.author === 'Anonymous') ||
+                    (!demo.creator_id && !demo.author);
+  
+  if (!isCreator) {
+    console.log(`[Publications] Permission denied: user=${user.id}/${user.username}, demo creator=${demo.creator_id}, demo author=${demo.author}`);
     return res.status(403).json({ code: 403, message: 'You can only publish your own demos', data: null });
   }
 
@@ -74,12 +82,7 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ code: 400, message: 'Community ID required for community layer', data: null });
   }
 
-  if (layer === 'community') {
-    const member = await isCommunityMember(communityId, user.id);
-    if (!member) {
-      return res.status(403).json({ code: 403, message: 'You must be a member of this community', data: null });
-    }
-  }
+  // 移除必须是社区成员的限制，允许发布到任何社区
 
   const id = uuidv4();
   const now = Date.now();
@@ -95,7 +98,10 @@ router.post('/', async (req, res) => {
     res.json({ code: 200, message: 'Publication request submitted', data: mapPublicationRow(publication) });
   } catch (error) {
     console.error('Error creating publication request:', error);
-    res.status(500).json({ code: 500, message: 'Server error', data: null });
+    if (error.message && error.message.includes('UNIQUE constraint failed')) {
+      return res.status(409).json({ code: 409, message: '该作品已经申请发布到此位置，请勿重复提交', data: null });
+    }
+    res.status(500).json({ code: 500, message: 'Server error: ' + error.message, data: null });
   }
 });
 
@@ -214,18 +220,38 @@ router.patch('/:id/status', async (req, res) => {
           console.log(`[Publications] Demo ${demo.id} marked as published globally`);
         }
 
+        // Also update the demo's primary location to match the publication target
+        // This ensures the demo appears in the target layer/community
         await runQuery(`
-          INSERT OR IGNORE INTO demo_locations (id, demo_id, layer, community_id, category_id, created_at)
-          VALUES (?, ?, ?, ?, ?, ?)
+          UPDATE demos 
+          SET layer = ?, community_id = ?, category_id = ?
+          WHERE id = ?
         `, [
-          uuidv4(),
-          publication.demo_id,
           publication.layer,
           publication.community_id || null,
           publication.category_id,
-          Date.now()
+          publication.demo_id
         ]);
-        console.log(`[Publications] Demo ${demo.id} added to location: ${publication.layer}${publication.community_id ? ' (' + publication.community_id + ')' : ''}`);
+        console.log(`[Publications] Demo ${demo.id} primary location updated to: ${publication.layer}${publication.community_id ? ' (' + publication.community_id + ')' : ''}`);
+
+        // Also add to demo_locations for tracking multiple locations
+        try {
+          await runQuery(`
+            INSERT OR IGNORE INTO demo_locations (id, demo_id, layer, community_id, category_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `, [
+            uuidv4(),
+            publication.demo_id,
+            publication.layer,
+            publication.community_id || null,
+            publication.category_id,
+            Date.now()
+          ]);
+          console.log(`[Publications] Demo ${demo.id} added to demo_locations`);
+        } catch (locError) {
+          // demo_locations table might not exist, log but don't fail
+          console.log(`[Publications] Note: demo_locations insert skipped: ${locError.message}`);
+        }
       }
     }
 

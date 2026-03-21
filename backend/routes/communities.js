@@ -160,11 +160,11 @@ router.post('/', async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `, [id, name, description, user.id, code, 'pending', type, now]);
 
-    // Creator is automatically a member
+    // Creator is automatically a member and admin
     await runQuery(`
-      INSERT INTO community_members (community_id, user_id, status, joined_at)
-      VALUES (?, ?, ?, ?)
-    `, [id, user.id, 'member', now]);
+      INSERT INTO community_members (community_id, user_id, status, role, joined_at)
+      VALUES (?, ?, ?, ?, ?)
+    `, [id, user.id, 'member', 'admin', now]);
 
     const community = await getRow('SELECT * FROM communities WHERE id = ?', [id]);
     res.json({ code: 200, message: 'Success', data: await mapCommunityRow(community) });

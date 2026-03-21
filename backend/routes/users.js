@@ -72,10 +72,10 @@ const getUserFromAuth = async (req) => {
   }
 };
 
-// GET /users - Get all users (general admin only)
+// GET /users - Get all users (general admin and site sub admin)
 router.get('/', async (req, res) => {
   const currentUser = await getUserFromAuth(req);
-  if (!currentUser || currentUser.role !== 'general_admin') {
+  if (!currentUser || !['general_admin', 'site_sub_admin'].includes(currentUser.role)) {
     return res.status(403).json({ code: 403, message: 'Forbidden', data: null });
   }
 
@@ -231,21 +231,26 @@ router.put('/:id/unban', async (req, res) => {
     res.status(500).json({ code: 500, message: 'Server error', data: null });
   }
 });
-// PATCH /users/:id/role - Toggle general admin role (general admin only)
+// PATCH /users/:id/role - Toggle general admin role (admin only, but only original admin can modify other admins)
 router.patch('/:id/role', async (req, res) => {
   const currentUser = await getUserFromAuth(req);
-  if (!currentUser || currentUser.role !== 'general_admin') {
+  if (!currentUser || !['general_admin', 'site_sub_admin'].includes(currentUser.role)) {
     return res.status(403).json({ code: 403, message: 'Forbidden', data: null });
   }
 
   const { id } = req.params;
   const { role } = req.body;
 
-  if (id === currentUser.id) {
+  // Only original admin (username: admin) can modify roles
+  if (currentUser.username !== 'admin') {
+    return res.status(403).json({ code: 403, message: 'Only the original admin can modify user roles', data: null });
+  }
+
+  if (id === currentUser.id && role !== 'general_admin') {
     return res.status(400).json({ code: 400, message: 'Cannot demote yourself', data: null });
   }
 
-  if (role !== 'user' && role !== 'general_admin') {
+  if (!['user', 'general_admin', 'site_sub_admin'].includes(role)) {
     return res.status(400).json({ code: 400, message: 'Invalid role', data: null });
   }
 
@@ -256,7 +261,8 @@ router.patch('/:id/role', async (req, res) => {
     }
 
     await runQuery('UPDATE users SET role = ? WHERE id = ?', [role, id]);
-    res.json({ code: 200, message: `用户权限已更新为 ${role === 'general_admin' ? '管理员' : '普通用户'}`, data: null });
+    const roleName = role === 'general_admin' ? '总管理员' : role === 'site_sub_admin' ? '分管理员' : '普通用户';
+    res.json({ code: 200, message: `用户权限已更新为 ${roleName}`, data: null });
   } catch (error) {
     console.error('Update user role error:', error);
     res.status(500).json({ code: 500, message: 'Server error', data: null });

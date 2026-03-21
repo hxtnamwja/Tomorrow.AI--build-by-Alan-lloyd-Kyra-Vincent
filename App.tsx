@@ -292,15 +292,37 @@ export default function App() {
       }
     }
 
-    // Load demos based on sort preference
+    // Load demos based on sort preference and current layer
     let demosData: Demo[];
-    if (isCacheValid && dataCache.demos) {
-      demosData = dataCache.demos;
+    const currentCachedDemos = dataCache.demos || [];
+    
+    if (isCacheValid && currentCachedDemos.length > 0) {
+      demosData = currentCachedDemos;
+      console.log('[refreshAllData] Using cached demos:', demosData.length);
     } else {
-      if (sortBy === 'likes') {
-        demosData = await StorageService.getDemosSortedByLikes({});
-      } else {
-        demosData = await StorageService.getAllDemos();
+      try {
+        console.log('[refreshAllData] Fetching demos for layer:', layer, 'communityId:', activeCommunityId);
+        if (sortBy === 'likes') {
+          demosData = await StorageService.getDemosSortedByLikes({ 
+            layer, 
+            communityId: layer === 'community' ? activeCommunityId : undefined 
+          });
+        } else {
+          // 根据当前 layer 获取对应的 demos，包括通过发布功能添加到该 layer 的程序
+          demosData = await StorageService.getDemosByLayer(layer, layer === 'community' ? activeCommunityId : undefined);
+        }
+        console.log('[refreshAllData] Fetched demos:', demosData.length);
+        
+        // 如果返回空数组且之前有数据，保留旧数据（防止程序消失）
+        if (demosData.length === 0 && currentCachedDemos.length > 0) {
+          console.log('[refreshAllData] API returned empty demos, keeping cached data:', currentCachedDemos.length);
+          demosData = currentCachedDemos;
+        }
+      } catch (error) {
+        console.error('[refreshAllData] Failed to load demos:', error);
+        // 如果API调用失败，保留旧数据
+        demosData = currentCachedDemos;
+        console.log('[refreshAllData] Using cached data after error:', demosData.length);
       }
     }
 
@@ -387,19 +409,43 @@ export default function App() {
   };
 
   const handlePublishToCommunity = async (layer: string, categoryId: string, communityId?: string) => {
-    if (!selectedDemo) return;
+    if (!selectedDemo) {
+      console.error('[handlePublishToCommunity] No selected demo');
+      return;
+    }
+    
+    console.log('[handlePublishToCommunity] Starting publication:', {
+      demoId: selectedDemo.id,
+      demoTitle: selectedDemo.title,
+      demoCreatorId: selectedDemo.creatorId,
+      demoAuthor: selectedDemo.author,
+      layer,
+      categoryId,
+      communityId,
+      currentUser: currentUser?.id,
+      currentUsername: currentUser?.username
+    });
+    
     try {
-      await PublicationsAPI.create({
+      const result = await PublicationsAPI.create({
         demoId: selectedDemo.id,
         layer: layer as 'general' | 'community',
         categoryId,
         communityId
       });
+      console.log('[handlePublishToCommunity] Success:', result);
       alert('发布申请已提交，请等待审批');
-      await refreshAllData(true);
-    } catch (err) {
-      console.error('Failed to create publication request:', err);
-      alert('提交发布申请失败');
+      
+      // 延迟刷新，给数据库时间更新
+      setTimeout(async () => {
+        console.log('[handlePublishToCommunity] Refreshing data...');
+        await refreshAllData(true);
+        console.log('[handlePublishToCommunity] Data refreshed');
+      }, 500);
+    } catch (err: any) {
+      console.error('[handlePublishToCommunity] Failed:', err);
+      const errorMessage = err.message || err.response?.data?.message || '未知错误';
+      alert('提交发布申请失败: ' + errorMessage);
     }
   };
 
@@ -459,6 +505,14 @@ export default function App() {
 
   useEffect(() => {
     setActiveCategory('All');
+  }, [layer, activeCommunityId]);
+
+  // Reload demos when layer or activeCommunityId changes
+  useEffect(() => {
+    if (isLoggedIn) {
+      console.log('[useEffect] Layer or community changed, refreshing data:', { layer, activeCommunityId });
+      refreshAllData(true);
+    }
   }, [layer, activeCommunityId]);
 
   // Reload demos when sort preference changes
@@ -620,13 +674,22 @@ export default function App() {
   };
 
   const filteredDemos = useMemo(() => {
+    console.log('[filteredDemos] Filtering demos:', demos.length, 'layer:', layer, 'activeCommunityId:', activeCommunityId);
+    console.log('[filteredDemos] Demo communityIds:', demos.map(d => ({ id: d.id, title: d.title, communityId: d.communityId, layer: d.layer, status: d.status })));
+    
     return demos.filter(d => {
       // Layer Check
-      if (d.layer !== layer) return false;
+      if (d.layer !== layer) {
+        console.log('[filteredDemos] Layer mismatch:', d.id, d.layer, '!==', layer);
+        return false;
+      }
       
       // Community Isolation
       if (layer === 'community') {
-          if (d.communityId !== activeCommunityId) return false;
+          if (d.communityId !== activeCommunityId) {
+            console.log('[filteredDemos] Community mismatch:', d.id, d.communityId, '!==', activeCommunityId);
+            return false;
+          }
       }
 
       let matchCategory = false;
@@ -649,6 +712,9 @@ export default function App() {
       // Admin sees pending, users see published + their own pending demos
       if (view === 'explore') {
           const isVisible = d.status === 'published' || (d.author === currentUserId && d.status === 'pending');
+          if (!isVisible) {
+            console.log('[filteredDemos] Status filter rejected:', d.id, 'status:', d.status, 'author:', d.author, 'currentUserId:', currentUserId);
+          }
           return matchCategory && matchSearch && isVisible;
       }
       return matchCategory && matchSearch;
@@ -726,6 +792,11 @@ export default function App() {
       setActiveCategory('All');
       await refreshAllData(true);
     }
+  };
+
+  const handleEditCategory = async (id: string, newName: string) => {
+    await StorageService.updateCategory(id, { name: newName });
+    await refreshAllData(true);
   };
 
   const handleApprove = async (id: string) => {
@@ -1014,82 +1085,109 @@ export default function App() {
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 custom-scrollbar border-t border-slate-100/80 pt-6">
-          <div className="flex items-center justify-between mb-4 px-2 sticky top-0 z-20 pb-2">
-             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">{t('subjects')}</h3>
-             {layer === 'community' && activeCommunityId && isCurrentCommunityAdmin && (
-               <button 
-                 onClick={() => openCategoryModal(null)} 
-                 className="text-xs bg-white text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 transition-all shadow-sm"
-                 title={t('addCategory')}
-               >
-                 <Plus className="w-3.5 h-3.5" />
-               </button>
-             )}
-          </div>
-          
-          <nav className="space-y-1 pb-10">
-            <button 
-              onClick={() => handleCategorySelect('All')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-all ${activeCategory === 'All' ? 'bg-indigo-50 text-indigo-700 shadow-sm ring-1 ring-indigo-200' : 'text-slate-600 hover:bg-slate-50'}`}
-            >
-              <FolderOpen className={`w-4 h-4 ${activeCategory === 'All' ? 'text-indigo-600' : 'text-slate-400'}`} />
-              {t('all')}
-            </button>
-
-            {layer === 'general' ? (
-              categories
-                .filter(c => !c.communityId && !c.parentId)
-                .sort((a, b) => {
-                  const order = ['cat-physics', 'cat-chemistry', 'cat-mathematics', 'cat-biology', 'cat-computer-science', 'cat-astronomy', 'cat-earth-science', 'cat-creative-tools'];
-                  return order.indexOf(a.id) - order.indexOf(b.id);
-                })
-                .map(cat => {
-                  const subjectName = CATEGORY_ID_TO_SUBJECT[cat.id] || cat.name;
-                  const translationKey: any = {
-                    'Physics': 'physics',
-                    'Chemistry': 'chemistry',
-                    'Mathematics': 'mathematics',
-                    'Biology': 'biology',
-                    'Computer Science': 'computerScience',
-                    'Astronomy': 'astronomy',
-                    'Earth Science': 'earthScience',
-                    'Creative Tools': 'creativeTools'
-                  }[subjectName] || subjectName.toLowerCase();
-                  
-                  return (
-                    <button 
+        {layer === 'community' ? (
+          /* 社区层 - 可滚动目录 */
+          <div className="flex-1 flex flex-col min-h-0 px-4 border-t border-slate-100/80 pt-6">
+            {/* 固定的学科分类标题 - 不随滚动 */}
+            <div className="flex items-center justify-between mb-4 px-2 pb-2 shrink-0">
+               <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">{t('subjects')}</h3>
+               {activeCommunityId && isCurrentCommunityAdmin && (
+                 <button 
+                   onClick={() => openCategoryModal(null)} 
+                   className="text-xs bg-white text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 transition-all shadow-sm"
+                   title={t('addCategory')}
+                 >
+                   <Plus className="w-3.5 h-3.5" />
+                 </button>
+               )}
+            </div>
+            
+            {/* 可滚动的目录内容 */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar -mx-4 px-4">
+              <nav className="space-y-1 pb-10">
+                <button 
+                  onClick={() => handleCategorySelect('All')}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-all ${activeCategory === 'All' ? 'bg-indigo-50 text-indigo-700 shadow-sm ring-1 ring-indigo-200' : 'text-slate-600 hover:bg-slate-50'}`}
+                >
+                  <FolderOpen className={`w-4 h-4 ${activeCategory === 'All' ? 'text-indigo-600' : 'text-slate-400'}`} />
+                  {t('all')}
+                </button>
+                <div className="mt-2 space-y-1">
+                   {rootCategories.length === 0 && (
+                     <div className="text-xs text-slate-400 px-4 py-2 italic">{t('noCategoriesYet')}</div>
+                   )}
+                  {rootCategories.map(cat => (
+                    <CategoryTreeNode 
                       key={cat.id}
-                      onClick={() => handleCategorySelect(cat.id)}
-                      className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-all ${activeCategory === cat.id ? 'bg-indigo-50 text-indigo-700 shadow-sm ring-1 ring-indigo-200' : 'text-slate-600 hover:bg-slate-50'}`}
-                    >
-                      <SubjectIcon subject={cat.id} />
-                      {t(translationKey)}
-                    </button>
-                  );
-                })
-            ) : (
-              <div className="mt-2 space-y-1">
-                 {rootCategories.length === 0 && (
-                   <div className="text-xs text-slate-400 px-4 py-2 italic">{t('noCategoriesYet')}</div>
-                 )}
-                {rootCategories.map(cat => (
-                  <CategoryTreeNode 
-                    key={cat.id}
-                    category={cat}
-                    allCategories={categories}
-                    activeId={activeCategory}
-                    onSelect={handleCategorySelect}
-                    onAddSub={openCategoryModal}
-                    onDelete={handleDeleteCategory}
-                    role={isCurrentCommunityAdmin ? 'community_admin' : 'user'}
-                    t={t}
-                  />
-                ))}
-              </div>
-            )}
-          </nav>
-        </div>
+                      category={cat}
+                      allCategories={categories}
+                      activeId={activeCategory}
+                      onSelect={handleCategorySelect}
+                      onAddSub={openCategoryModal}
+                      onEdit={handleEditCategory}
+                      onDelete={handleDeleteCategory}
+                      role={isCurrentCommunityAdmin ? 'community_admin' : 'user'}
+                      t={t}
+                    />
+                  ))}
+                </div>
+              </nav>
+            </div>
+          </div>
+        ) : (
+          /* 通用层 - 可滚动目录 */
+          <div className="flex-1 flex flex-col min-h-0 px-4 border-t border-slate-100/80 pt-6">
+            {/* 固定的学科分类标题 - 不随滚动 */}
+            <div className="flex items-center justify-between mb-4 px-2 pb-2 shrink-0">
+               <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">{t('subjects')}</h3>
+            </div>
+            
+            {/* 可滚动的目录内容 */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar -mx-4 px-4">
+              <nav className="space-y-1 pb-10">
+                <button 
+                  onClick={() => handleCategorySelect('All')}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-all ${activeCategory === 'All' ? 'bg-indigo-50 text-indigo-700 shadow-sm ring-1 ring-indigo-200' : 'text-slate-600 hover:bg-slate-50'}`}
+                >
+                  <FolderOpen className={`w-4 h-4 ${activeCategory === 'All' ? 'text-indigo-600' : 'text-slate-400'}`} />
+                  {t('all')}
+                </button>
+
+                {categories
+                  .filter(c => !c.communityId && !c.parentId)
+                  .sort((a, b) => {
+                    const order = ['cat-physics', 'cat-chemistry', 'cat-mathematics', 'cat-biology', 'cat-computer-science', 'cat-astronomy', 'cat-earth-science', 'cat-creative-tools'];
+                    return order.indexOf(a.id) - order.indexOf(b.id);
+                  })
+                  .map(cat => {
+                    const subjectName = CATEGORY_ID_TO_SUBJECT[cat.id] || cat.name;
+                    const translationKey: any = {
+                      'Physics': 'physics',
+                      'Chemistry': 'chemistry',
+                      'Mathematics': 'mathematics',
+                      'Biology': 'biology',
+                      'Computer Science': 'computerScience',
+                      'Astronomy': 'astronomy',
+                      'Earth Science': 'earthScience',
+                      'Creative Tools': 'creativeTools'
+                    }[subjectName] || subjectName.toLowerCase();
+                    
+                    return (
+                      <button 
+                        key={cat.id}
+                        onClick={() => handleCategorySelect(cat.id)}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-all ${activeCategory === cat.id ? 'bg-indigo-50 text-indigo-700 shadow-sm ring-1 ring-indigo-200' : 'text-slate-600 hover:bg-slate-50'}`}
+                      >
+                        <SubjectIcon subject={cat.id} />
+                        {t(translationKey)}
+                      </button>
+                    );
+                  })
+                }
+              </nav>
+            </div>
+          </div>
+        )}
       </>
     );
   };
@@ -2267,20 +2365,24 @@ export default function App() {
                     </button>
                 </div>
                 <div className="max-h-60 overflow-y-auto divide-y divide-slate-100">
-                    {activeCommunity.members.map(uid => (
-                        <div key={uid} className="px-6 py-3 flex items-center justify-between">
-                            <span className="text-sm font-medium text-slate-600">{uid} {uid === currentUserId ? '(You)' : ''}</span>
-                            {/* Only creator can kick members */}
-                            {uid !== currentUserId && activeCommunity.creatorId === currentUserId && (
-                                <button 
-                                    onClick={() => handleManageMember(activeCommunity.id, uid, 'kick')}
-                                    className="text-xs text-red-400 hover:text-red-600 font-bold"
-                                >
-                                    Kick
-                                </button>
-                            )}
-                        </div>
-                    ))}
+                    {activeCommunity.members.map(uid => {
+                        const user = allUsers.find(u => u.id === uid);
+                        const displayName = user ? user.username : uid;
+                        return (
+                            <div key={uid} className="px-6 py-3 flex items-center justify-between">
+                                <span className="text-sm font-medium text-slate-600">{displayName} {uid === currentUserId ? '(You)' : ''}</span>
+                                {/* Only creator can kick members */}
+                                {uid !== currentUserId && activeCommunity.creatorId === currentUserId && (
+                                    <button 
+                                        onClick={() => handleManageMember(activeCommunity.id, uid, 'kick')}
+                                        className="text-xs text-red-400 hover:text-red-600 font-bold"
+                                    >
+                                        Kick
+                                    </button>
+                                )}
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
          )}
@@ -2507,6 +2609,7 @@ export default function App() {
           onUpdateCommunity={handleUpdateCommunity}
           onDeleteCommunity={handleDeleteCommunity}
           onManageMember={handleManageMember}
+          onRefresh={() => refreshAllData(true)}
           t={t}
         />
       )}
@@ -2515,6 +2618,8 @@ export default function App() {
       {isUserManagementOpen && (
         <UserManagementPanel
           currentUserRole={role}
+          currentUserId={currentUserId}
+          currentUser={currentUser}
           activeCommunity={activeCommunity}
           onClose={() => setIsUserManagementOpen(false)}
           onViewUserProfile={(userId) => {
@@ -2552,7 +2657,7 @@ export default function App() {
         demo={selectedDemo}
         communities={communities}
         categories={categories}
-        userCommunities={myCommunities}
+        userCommunities={communities.filter(c => c.status === 'approved')}
       />
       
       {/* Join By Code Modal */}
@@ -2732,7 +2837,7 @@ export default function App() {
               setWasViewingProfile(false);
             }}
             allUsers={allUsers}
-            onPublishToOther={selectedDemo.creatorId === currentUserId && !isBanned ? () => setIsPublishModalOpen(true) : undefined}
+            onPublishToOther={currentUserId && (selectedDemo.creatorId === currentUserId || selectedDemo.author === currentUser?.username) ? () => setIsPublishModalOpen(true) : undefined}
             onReportDemo={() => {
               handleOpenFeedback(
                 'demo_complaint',

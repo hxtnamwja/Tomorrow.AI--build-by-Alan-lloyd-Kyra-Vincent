@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { X, RefreshCw, Sparkles, Heart, Maximize2, Minimize2, Smartphone, Send, RotateCcw, Trash2, FolderOpen, AlertTriangle, Monitor, UserCircle, Trash, Award, BookOpen, FlaskConical, Beaker, Trophy, Edit3, Hash } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { Demo, Category, Subject } from '../types';
+import { Demo, Category, Subject, UserRole } from '../types';
 import { AiService } from '../services/aiService';
 import { DemosAPI } from '../services/apiService';
 import { AIMessageContent } from './AIMessageContent';
@@ -50,7 +50,7 @@ const CATEGORY_ID_TO_TRANSLATION_KEY: Record<string, string> = {
   'cat-creative-tools': 'creativeTools'
 };
 
-export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpenDemo, onLikeChange, onViewUserProfile, allUsers, onPublishToOther, onReportDemo, currentUserRole, categories }: { demo: Demo, currentUserId?: string, currentUser?: any, onClose: () => void, t: any, onOpenDemo?: (demoId: string) => void, onLikeChange?: (demoId: string, likeCount: number, userLiked: boolean) => void, onViewUserProfile?: (userId: string) => void, allUsers?: any[], onPublishToOther?: () => void, onReportDemo?: () => void, currentUserRole?: 'user' | 'general_admin', categories?: Category[] }) => {
+export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpenDemo, onLikeChange, onViewUserProfile, allUsers, onPublishToOther, onReportDemo, currentUserRole, categories }: { demo: Demo, currentUserId?: string, currentUser?: any, onClose: () => void, t: any, onOpenDemo?: (demoId: string) => void, onLikeChange?: (demoId: string, likeCount: number, userLiked: boolean) => void, onViewUserProfile?: (userId: string) => void, allUsers?: any[], onPublishToOther?: () => void, onReportDemo?: () => void, currentUserRole?: UserRole, categories?: Category[] }) => {
   const [activeTab, setActiveTab] = useState<'basicInfo' | 'code' | 'ai'>('basicInfo');
   const [iframeKey, setIframeKey] = useState(0);
   const [aiMessages, setAiMessages] = useState<{role: 'user' | 'model', text: string}[]>([]);
@@ -1394,7 +1394,7 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
                        <Hash className="w-4 h-4" />
                        {t('tags')}
                      </h6>
-                     {((currentUserId && demo.creatorId === currentUserId) || currentUserRole === 'general_admin') && (
+                     {((currentUserId && demo.creatorId === currentUserId) || currentUserRole === 'general_admin' || currentUserRole === 'site_sub_admin') && (
                        <button
                          onClick={() => setIsEditingTags(true)}
                          className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
@@ -1459,7 +1459,8 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
                    </button>
                  )}
                  
-                 {currentUserId && demo.creatorId === currentUserId && (
+                 {/* 修改按钮：只有创建者可见 */}
+                 {currentUserId && (demo.creatorId === currentUserId || demo.author === currentUser?.username) && (
                    <button
                      onClick={() => setIsEditModalOpen(true)}
                      className="w-full py-2 px-4 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-lg text-sm font-medium hover:from-amber-600 hover:to-orange-600 transition-all flex items-center justify-center gap-2 shadow-sm mt-3"
@@ -1530,7 +1531,7 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
                                  <span className="font-semibold text-slate-800">{comment.username}</span>
                                  <p className="text-xs text-slate-400 mt-1">{new Date(comment.created_at).toLocaleString()}</p>
                                </div>
-                               {(currentUserRole === 'general_admin' || comment.user_id === currentUserId) && (
+                               {(currentUserRole === 'general_admin' || currentUserRole === 'site_sub_admin' || comment.user_id === currentUserId) && (
                                  <button
                                    onClick={() => handleDeleteComment(comment.id)}
                                    disabled={commentActionLoading}
@@ -1711,22 +1712,25 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
                  </div>
                  
                  <div className="mt-auto pt-4 border-t border-slate-200 bg-slate-50/50">
-                   <div className="relative">
+                   <div className="space-y-2">
                      <input
                        type="text"
+                       id="demo-ai-input"
                        placeholder={t('aiChatPlaceholder')}
-                       className="w-full px-4 py-3 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none pr-12"
+                       className="w-full px-4 py-3 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                        onKeyDown={(e) => {
                          if (e.key === 'Enter') {
-                           handleDemoAiAsk((e.target as HTMLInputElement).value);
-                           (e.target as HTMLInputElement).value = '';
+                           e.preventDefault();
+                           e.stopPropagation();
+                           return false;
                          }
                        }}
                      />
                      <button
-                       className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-1.5"
-                       onClick={(e) => {
-                         const input = e.currentTarget.previousElementSibling as HTMLInputElement;
+                       type="button"
+                       className="w-full px-3 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center gap-1.5"
+                       onClick={() => {
+                         const input = document.getElementById('demo-ai-input') as HTMLInputElement;
                          if (input && input.value.trim()) {
                            handleDemoAiAsk(input.value);
                            input.value = '';
@@ -1734,7 +1738,7 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
                        }}
                      >
                         <Send className="w-4 h-4" />
-                        <span className="text-xs font-medium hidden sm:inline">{t('send')}</span>
+                        <span className="text-xs font-medium">{t('send')}</span>
                      </button>
                    </div>
                    {aiLoading && (

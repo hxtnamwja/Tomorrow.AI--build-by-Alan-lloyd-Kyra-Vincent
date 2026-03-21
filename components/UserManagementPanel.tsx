@@ -28,6 +28,7 @@ const LevelIcon = ({ iconKey, className, color }: { iconKey: string, className?:
 interface UserManagementPanelProps {
   currentUserRole: UserRole;
   currentUserId: string;
+  currentUser?: UserType;
   activeCommunity?: Community;
   onClose: () => void;
   onViewUserProfile?: (userId: string) => void;
@@ -36,6 +37,7 @@ interface UserManagementPanelProps {
 export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
   currentUserRole,
   currentUserId,
+  currentUser,
   activeCommunity,
   onClose,
   onViewUserProfile
@@ -137,25 +139,73 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
     }
   };
 
-  // Can the current user manage users (points, ban, roles)?
-  const canManageUsers = activeCommunity 
+  // Permission checks
+  // isFullAdmin: 总管理员或社区创始人 - 拥有完整权限
+  // isSubAdmin: 社区分管理员 - 只有查看权限，不能操作
+  const isFullAdmin = activeCommunity 
     ? (activeCommunity.creatorId === currentUserId || currentUserRole === 'general_admin')
     : currentUserRole === 'general_admin';
+  
+  const isSubAdmin = activeCommunity 
+    ? (activeCommunity.adminMembers || []).includes(currentUserId)
+    : false;
+  
+  // 分管理员只能查看，不能操作
+  const canManageUsers = isFullAdmin;
 
   const handleToggleAdmin = async (user: UserType) => {
+    // 权限检查
+    if (!isFullAdmin) {
+      alert('您没有权限执行此操作');
+      return;
+    }
+    
+    // 不能对自己操作
+    if (user.id === currentUserId) {
+      alert('不能对自己进行操作');
+      return;
+    }
+    
+    // 在社区视图中，不能对总管理员进行操作
+    if (activeCommunity && user.role === 'general_admin' && activeCommunity.creatorId !== currentUserId) {
+      alert('不能对总管理员进行操作');
+      return;
+    }
+    
     setActionLoading(true);
     try {
-      if (activeCommunity) {
-        const isCurrentlyAdmin = (activeCommunity.adminMembers || []).includes(user.id);
-        const newRole = isCurrentlyAdmin ? 'member' : 'admin';
-        await CommunitiesAPI.setMemberRole(activeCommunity.id, user.id, newRole);
-        alert(newRole === 'admin' ? `已将 ${user.username} 设为分管理员` : `已撤销 ${user.username} 的管理员权限`);
-      } else {
-        const isCurrentlyAdmin = user.role === 'general_admin';
-        const newRole = isCurrentlyAdmin ? 'user' : 'general_admin';
-        await UsersAPI.setRole(user.id, newRole);
-        alert(newRole === 'general_admin' ? `已将 ${user.username} 设为总管理员` : `已撤销 ${user.username} 的管理员权限`);
-      }
+      const isCurrentlyAdmin = (activeCommunity!.adminMembers || []).includes(user.id);
+      const newRole = isCurrentlyAdmin ? 'member' : 'admin';
+      await CommunitiesAPI.setMemberRole(activeCommunity!.id, user.id, newRole);
+      alert(newRole === 'admin' ? `已将 ${user.username} 设为社区分管理员` : `已撤销 ${user.username} 的管理员权限`);
+      await loadUsers();
+    } catch (error: any) {
+      alert(`操作失败: ${error.message}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // 全局视图：设置用户角色（总管理员、分管理员、普通用户）
+  // 只有原始admin账号可以修改角色
+  const handleSetUserRole = async (user: UserType, newRole: UserRole) => {
+    // 只有admin账号可以设置角色
+    if (currentUser?.username !== 'admin') {
+      alert('只有原始admin账号可以修改用户角色');
+      return;
+    }
+    
+    // 不能对自己操作
+    if (user.id === currentUserId) {
+      alert('不能对自己进行操作');
+      return;
+    }
+    
+    setActionLoading(true);
+    try {
+      await UsersAPI.setRole(user.id, newRole);
+      const roleName = newRole === 'general_admin' ? '总管理员' : newRole === 'site_sub_admin' ? '分管理员' : '普通用户';
+      alert(`已将 ${user.username} 设为${roleName}`);
       await loadUsers();
     } catch (error: any) {
       alert(`操作失败: ${error.message}`);
@@ -216,11 +266,18 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
                       <button
                         onClick={() => onViewUserProfile && onViewUserProfile(user.id)}
                         className={`w-10 h-10 rounded-xl flex items-center justify-center transition-transform hover:scale-110 cursor-pointer ${
-                          user.role === 'general_admin' ? 'bg-purple-100 text-purple-600' : 'bg-emerald-100 text-emerald-600'
+                          user.role === 'general_admin' ? 'bg-purple-100 text-purple-600' : 
+                          user.role === 'site_sub_admin' ? 'bg-amber-100 text-amber-600' :
+                          (activeCommunity?.adminMembers || []).includes(user.id) ? 'bg-yellow-100 text-yellow-600' :
+                          'bg-emerald-100 text-emerald-600'
                         }`}
                       >
                         {user.role === 'general_admin' ? (
                           <ShieldCheck className="w-5 h-5" />
+                        ) : user.role === 'site_sub_admin' ? (
+                          <Shield className="w-5 h-5" />
+                        ) : (activeCommunity?.adminMembers || []).includes(user.id) ? (
+                          <Shield className="w-5 h-5" />
                         ) : (
                           <UserCircle className="w-5 h-5" />
                         )}
@@ -235,7 +292,17 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
                           )}
                           {user.role === 'general_admin' && (
                             <span className="px-2 py-0.5 bg-purple-100 text-purple-600 text-xs font-bold rounded-full">
-                              管理员
+                              总管理员
+                            </span>
+                          )}
+                          {user.role === 'site_sub_admin' && (
+                            <span className="px-2 py-0.5 bg-amber-100 text-amber-600 text-xs font-bold rounded-full">
+                              分管理员
+                            </span>
+                          )}
+                          {(activeCommunity?.adminMembers || []).includes(user.id) && user.role !== 'general_admin' && (
+                            <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 text-xs font-bold rounded-full">
+                              社区分管理
                             </span>
                           )}
                           <span 
@@ -271,20 +338,60 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
                     </div>
 
                     <div className="flex items-center gap-2">
-                      {/* Promote/demote sub-admin button - for site or community view */}
+                      {/* 
+                        管理员设置说明：
+                        - 在社区用户管理中：社区创始人可以设置社区分管理员
+                        - 在全局用户管理中：只有admin账号可以设置总管理员或分管理员
+                      */}
                       {canManageUsers && user.id !== currentUserId && (
-                        <button
-                          onClick={() => handleToggleAdmin(user)}
-                          disabled={actionLoading}
-                          className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1.5 ${
-                            (activeCommunity ? (activeCommunity.adminMembers || []).includes(user.id) : user.role === 'general_admin')
-                              ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                              : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
-                          }`}
-                        >
-                          <Shield className="w-4 h-4" />
-                          {(activeCommunity ? (activeCommunity.adminMembers || []).includes(user.id) : user.role === 'general_admin') ? '撤销管理' : '设为管理'}
-                        </button>
+                        activeCommunity ? (
+                          // 社区视图：社区创始人可以设置社区分管理员
+                          <button
+                            onClick={() => handleToggleAdmin(user)}
+                            disabled={actionLoading}
+                            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1.5 ${
+                              (activeCommunity.adminMembers || []).includes(user.id)
+                                ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                                : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                            }`}
+                            title={(activeCommunity.adminMembers || []).includes(user.id) ? '撤销社区分管理员' : '设为社区分管理员'}
+                          >
+                            <Shield className="w-4 h-4" />
+                            {(activeCommunity.adminMembers || []).includes(user.id) ? '撤销分管理' : '设为分管理'}
+                          </button>
+                        ) : (
+                          // 全局视图：只有admin账号可以设置角色
+                          currentUser?.username === 'admin' ? (
+                            <select
+                              value={user.role}
+                              onChange={(e) => handleSetUserRole(user, e.target.value as UserRole)}
+                              disabled={actionLoading}
+                              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 border-0 cursor-pointer ${
+                                user.role === 'general_admin'
+                                  ? 'bg-purple-100 text-purple-700'
+                                  : user.role === 'site_sub_admin'
+                                  ? 'bg-amber-100 text-amber-700'
+                                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                              }`}
+                              title="点击修改角色"
+                            >
+                              <option value="user">普通用户</option>
+                              <option value="site_sub_admin">分管理员</option>
+                              <option value="general_admin">总管理员</option>
+                            </select>
+                          ) : (
+                            // 非admin用户只显示角色标签
+                            <span className={`px-3 py-1.5 text-sm font-medium rounded-lg ${
+                              user.role === 'general_admin'
+                                ? 'bg-purple-100 text-purple-700'
+                                : user.role === 'site_sub_admin'
+                                ? 'bg-amber-100 text-amber-700'
+                                : 'bg-slate-100 text-slate-700'
+                            }`}>
+                              {user.role === 'general_admin' ? '总管理员' : user.role === 'site_sub_admin' ? '分管理员' : '普通用户'}
+                            </span>
+                          )
+                        )
                       )}
                       {/* Edit points button - available to general admin and community admins */}
                       {canManageUsers && user.role !== 'general_admin' && (

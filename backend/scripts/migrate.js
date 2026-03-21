@@ -7,14 +7,14 @@ const migrateDatabase = async () => {
   console.log('开始数据库迁移...');
   
   try {
-    // 检查字段是否已存在
-    const tableInfo = await getAllRows('PRAGMA table_info(demos)');
-    const columns = tableInfo.map(row => row.name);
+    // 检查demos表字段
+    const demosTableInfo = await getAllRows('PRAGMA table_info(demos)');
+    const demosColumns = demosTableInfo.map(row => row.name);
     
-    console.log('当前demos表字段:', columns);
+    console.log('当前demos表字段:', demosColumns);
     
     // 添加project_type字段
-    if (!columns.includes('project_type')) {
+    if (!demosColumns.includes('project_type')) {
       await runQuery(`ALTER TABLE demos ADD COLUMN project_type TEXT DEFAULT 'single-file' CHECK(project_type IN ('single-file', 'multi-file'))`);
       console.log('✓ 添加project_type字段');
     } else {
@@ -22,7 +22,7 @@ const migrateDatabase = async () => {
     }
     
     // 添加entry_file字段
-    if (!columns.includes('entry_file')) {
+    if (!demosColumns.includes('entry_file')) {
       await runQuery(`ALTER TABLE demos ADD COLUMN entry_file TEXT`);
       console.log('✓ 添加entry_file字段');
     } else {
@@ -30,11 +30,25 @@ const migrateDatabase = async () => {
     }
     
     // 添加project_size字段
-    if (!columns.includes('project_size')) {
+    if (!demosColumns.includes('project_size')) {
       await runQuery(`ALTER TABLE demos ADD COLUMN project_size INTEGER`);
       console.log('✓ 添加project_size字段');
     } else {
       console.log('- project_size字段已存在');
+    }
+    
+    // 检查community_members表字段
+    const cmTableInfo = await getAllRows('PRAGMA table_info(community_members)');
+    const cmColumns = cmTableInfo.map(row => row.name);
+    
+    console.log('当前community_members表字段:', cmColumns);
+    
+    // 添加role字段到community_members表
+    if (!cmColumns.includes('role')) {
+      await runQuery(`ALTER TABLE community_members ADD COLUMN role TEXT DEFAULT 'member' CHECK(role IN ('member', 'admin'))`);
+      console.log('✓ 添加role字段到community_members表');
+    } else {
+      console.log('- role字段已存在');
     }
 
     // Add demo_publications table

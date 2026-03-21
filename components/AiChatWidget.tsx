@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, X, ChevronRight, Trash2 } from 'lucide-react';
+import { Sparkles, X, Trash2 } from 'lucide-react';
 import { AiService } from '../services/aiService';
 import { AIMessageContent } from './AIMessageContent';
 import { Demo, Language } from '../types';
@@ -20,6 +20,7 @@ export const AiChatWidget: React.FC<AiChatWidgetProps> = ({ t, language, onOpenD
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Load messages from localStorage when component mounts
   useEffect(() => {
@@ -105,7 +106,7 @@ ${demosContext}
           if (lastMessage.role === 'model') {
             lastMessage.text = accumulatedText;
           }
-          return [...newMessages]; // New array reference triggers re-render of this component ONLY
+          return [...newMessages];
         });
       });
     } catch (error) {
@@ -127,6 +128,16 @@ ${demosContext}
     if (window.confirm(t('clearChatHistory') || '确定要清除聊天历史吗？')) {
       localStorage.removeItem('ai_chat_messages');
       setMessages([{role: 'model', text: t('chatWelcome')}]);
+    }
+  };
+
+  // 处理键盘事件 - 完全阻止回车键发送
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      // 完全阻止回车键的默认行为和事件传播
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
     }
   };
 
@@ -193,21 +204,25 @@ ${demosContext}
               <div ref={messagesEndRef} />
             </div>
             
+            {/* 完全分离的输入区域 - 输入框和发送按钮完全独立 */}
             <div className="p-3 bg-white border-t border-slate-100 shrink-0">
-              <div className="flex gap-2">
+              <div className="space-y-2">
                 <input 
-                  className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 outline-none transition-all"
+                  ref={inputRef}
+                  type="text"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 outline-none transition-all"
                   placeholder={t('aiChatPlaceholder')}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                  onKeyDown={handleKeyDown}
                 />
                 <button 
+                  type="button"
                   onClick={handleSend}
-                  disabled={isLoading}
-                  className="bg-indigo-600 text-white p-2.5 rounded-xl hover:bg-indigo-700 disabled:opacity-50 shadow-md shadow-indigo-200 transition-all"
+                  disabled={isLoading || !input.trim()}
+                  className="w-full bg-indigo-600 text-white py-2.5 rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-indigo-200 transition-all text-sm font-medium"
                 >
-                  <ChevronRight className="w-4 h-4" />
+                  发送
                 </button>
               </div>
             </div>

@@ -54,6 +54,7 @@ const createTables = async () => {
       community_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
       status TEXT NOT NULL CHECK(status IN ('member', 'pending')),
+      role TEXT NOT NULL DEFAULT 'member' CHECK(role IN ('member', 'admin')),
       joined_at INTEGER NOT NULL,
       UNIQUE(community_id, user_id),
       FOREIGN KEY (community_id) REFERENCES communities(id) ON DELETE CASCADE,
