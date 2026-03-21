@@ -27,6 +27,10 @@ export const CommunityAdminPanel: React.FC<CommunityAdminPanelProps> = ({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   
+  const [isEditingInfo, setIsEditingInfo] = useState(false);
+  const [editName, setEditName] = useState(community.name);
+  const [editDescription, setEditDescription] = useState(community.description || '');
+  
   const handleToggleCommunityType = () => {
     const newType = community.type === 'open' ? 'closed' : 'open';
     onUpdateCommunity({
@@ -35,8 +39,23 @@ export const CommunityAdminPanel: React.FC<CommunityAdminPanelProps> = ({
     });
   };
 
-  // Check if current user is the community creator or general admin
-  const isAdmin = community.creatorId === currentUserId || currentUserRole === 'general_admin';
+  const handleSaveInfo = () => {
+    if (!editName.trim()) {
+      alert('社区名称不能为空');
+      return;
+    }
+    onUpdateCommunity({
+      ...community,
+      name: editName.trim(),
+      description: editDescription.trim()
+    });
+    setIsEditingInfo(false);
+  };
+
+  // Check if current user is the community creator, a general admin, or a community sub-admin
+  const isAdmin = community.creatorId === currentUserId || 
+                  currentUserRole === 'general_admin' || 
+                  (community.adminMembers && community.adminMembers.includes(currentUserId));
 
   // Get all members info (in real app, you'd fetch user details)
   const memberCount = community.members.length;
@@ -173,43 +192,77 @@ export const CommunityAdminPanel: React.FC<CommunityAdminPanelProps> = ({
             <div className="space-y-6">
               {/* Community Info Card */}
               <div className="bg-slate-50 rounded-xl p-6">
-                <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-                  <Building2 className="w-5 h-5 text-indigo-600" />
-                  社区基本信息
-                </h3>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <Building2 className="w-5 h-5 text-indigo-600" />
+                    {t('communityBasicInfo')}
+                  </h3>
+                  {isEditingInfo ? (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setIsEditingInfo(false)}
+                        className="px-3 py-1 text-xs font-bold text-slate-500 hover:bg-slate-200 rounded-lg transition-colors border border-slate-200"
+                      >
+                        {t('cancel')}
+                      </button>
+                      <button
+                        onClick={handleSaveInfo}
+                        className="px-3 py-1 text-xs font-bold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
+                      >
+                        {t('save')}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setIsEditingInfo(true)}
+                      className="px-3 py-1 text-xs font-bold text-indigo-600 hover:bg-indigo-50 border border-indigo-200 rounded-lg transition-colors"
+                    >
+                      {t('editInfo')}
+                    </button>
+                  )}
+                </div>
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <div className="bg-white p-4 rounded-lg">
-                    <p className="text-sm text-slate-500 mb-1">社区名称</p>
-                    <p className="font-medium text-slate-800">{community.name}</p>
+                    <p className="text-sm text-slate-500 mb-1">{t('communityName')}</p>
+                    {isEditingInfo ? (
+                      <input
+                        type="text"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        className="w-full px-2 py-1 border border-indigo-300 rounded focus:ring-1 focus:ring-indigo-500 outline-none font-medium"
+                      />
+                    ) : (
+                      <p className="font-medium text-slate-800">{community.name}</p>
+                    )}
                   </div>
                   <div className="bg-white p-4 rounded-lg">
-                    <p className="text-sm text-slate-500 mb-1">邀请码</p>
+                    <p className="text-sm text-slate-500 mb-1">{t('communityCode')}</p>
                     <p className="font-medium text-slate-800 font-mono">{community.code}</p>
                   </div>
                   <div className="bg-white p-4 rounded-lg">
-                    <p className="text-sm text-slate-500 mb-1">成员数量</p>
-                    <p className="font-medium text-slate-800">{memberCount} 人</p>
+                    <p className="text-sm text-slate-500 mb-1">{t('members')}</p>
+                    <p className="font-medium text-slate-800">{memberCount} {t('user')}</p>
                   </div>
                   <div className="bg-white p-4 rounded-lg">
-                    <p className="text-sm text-slate-500 mb-1">待审核申请</p>
-                    <p className="font-medium text-slate-800">{pendingCount} 人</p>
+                    <p className="text-sm text-slate-500 mb-1">{t('pendingRequests')}</p>
+                    <p className="font-medium text-slate-800">{pendingCount} {t('user')}</p>
                   </div>
                 </div>
                 
                 {/* Community Type Section */}
                 <div className="bg-white p-4 rounded-lg mb-4">
-                  <p className="text-sm text-slate-500 mb-3">社区类型</p>
+                  <p className="text-sm text-slate-500 mb-3">{t('communityStatus')}</p>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       {community.type === 'open' ? (
                         <div className="flex items-center gap-2 text-emerald-700">
                           <Globe className="w-5 h-5" />
-                          <span className="font-medium">开放社区 - 点击即可加入</span>
+                          <span className="font-medium">{t('openCommunityDesc')}</span>
                         </div>
                       ) : (
                         <div className="flex items-center gap-2 text-indigo-700">
                           <ShieldCheck className="w-5 h-5" />
-                          <span className="font-medium">封闭社区 - 需要申请或邀请码</span>
+                          <span className="font-medium">{t('closedCommunityDesc')}</span>
                         </div>
                       )}
                     </div>
@@ -221,65 +274,76 @@ export const CommunityAdminPanel: React.FC<CommunityAdminPanelProps> = ({
                           : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
                       }`}
                     >
-                      转换为{community.type === 'open' ? '封闭' : '开放'}社区
+                      {community.type === 'open' ? t('convertToClosed') : t('convertToOpen')}
                     </button>
                   </div>
                 </div>
                 
                 <div className="bg-white p-4 rounded-lg">
-                  <p className="text-sm text-slate-500 mb-1">社区描述</p>
-                  <p className="text-slate-800">{community.description}</p>
+                  <p className="text-sm text-slate-500 mb-1">{t('communityDesc')}</p>
+                  {isEditingInfo ? (
+                    <textarea
+                      value={editDescription}
+                      onChange={(e) => setEditDescription(e.target.value)}
+                      rows={3}
+                      className="w-full px-2 py-1 border border-indigo-300 rounded focus:ring-1 focus:ring-indigo-500 outline-none"
+                    />
+                  ) : (
+                    <p className="text-slate-800">{community.description}</p>
+                  )}
                 </div>
               </div>
 
-              {/* Danger Zone */}
-              <div className="bg-red-50 rounded-xl p-6 border border-red-100">
-                <h3 className="text-lg font-bold text-red-800 mb-4 flex items-center gap-2">
-                  <Trash2 className="w-5 h-5" />
-                  危险区域
-                </h3>
-                <p className="text-sm text-red-600 mb-4">
-                  解散社区将删除所有相关数据，此操作不可撤销。
-                </p>
-                {!showDeleteConfirm ? (
-                  <button
-                    onClick={() => setShowDeleteConfirm(true)}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                  >
-                    解散社区
-                  </button>
-                ) : (
-                  <div className="space-y-3">
-                    <p className="text-sm text-red-700">
-                      请输入社区名称 "{community.name}" 以确认删除：
-                    </p>
-                    <input
-                      type="text"
-                      value={deleteConfirmText}
-                      onChange={(e) => setDeleteConfirmText(e.target.value)}
-                      className="w-full px-3 py-2 border border-red-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                      placeholder="输入社区名称"
-                    />
-                    <div className="flex gap-2">
-                      <button
-                        onClick={handleDeleteCommunity}
-                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                      >
-                        确认删除
-                      </button>
-                      <button
-                        onClick={() => {
-                          setShowDeleteConfirm(false);
-                          setDeleteConfirmText('');
-                        }}
-                        className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors"
-                      >
-                        取消
-                      </button>
+              {/* Danger Zone - Only for Creator or General Admin */}
+              {(community.creatorId === currentUserId || currentUserRole === 'general_admin') && (
+                <div className="bg-red-50 rounded-xl p-6 border border-red-100">
+                  <h3 className="text-lg font-bold text-red-800 mb-4 flex items-center gap-2">
+                    <Trash2 className="w-5 h-5" />
+                    危险区域
+                  </h3>
+                  <p className="text-sm text-red-600 mb-4">
+                    解散社区将删除所有相关数据，此操作不可撤销。
+                  </p>
+                  {!showDeleteConfirm ? (
+                    <button
+                      onClick={() => setShowDeleteConfirm(true)}
+                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                    >
+                      解散社区
+                    </button>
+                  ) : (
+                    <div className="space-y-3">
+                      <p className="text-sm text-red-700">
+                        请输入社区名称 "{community.name}" 以确认删除：
+                      </p>
+                      <input
+                        type="text"
+                        value={deleteConfirmText}
+                        onChange={(e) => setDeleteConfirmText(e.target.value)}
+                        className="w-full px-3 py-2 border border-red-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                        placeholder="输入社区名称"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handleDeleteCommunity}
+                          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                        >
+                          确认删除
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowDeleteConfirm(false);
+                            setDeleteConfirmText('');
+                          }}
+                          className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors"
+                        >
+                          取消
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

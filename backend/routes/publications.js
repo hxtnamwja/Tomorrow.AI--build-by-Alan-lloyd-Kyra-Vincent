@@ -208,6 +208,12 @@ router.patch('/:id/status', async (req, res) => {
     if (status === 'published') {
       const demo = await getRow('SELECT * FROM demos WHERE id = ?', [publication.demo_id]);
       if (demo) {
+        // Update demo status to published if it's not already
+        if (demo.status !== 'published') {
+          await runQuery('UPDATE demos SET status = ? WHERE id = ?', ['published', demo.id]);
+          console.log(`[Publications] Demo ${demo.id} marked as published globally`);
+        }
+
         await runQuery(`
           INSERT OR IGNORE INTO demo_locations (id, demo_id, layer, community_id, category_id, created_at)
           VALUES (?, ?, ?, ?, ?, ?)
@@ -219,6 +225,7 @@ router.patch('/:id/status', async (req, res) => {
           publication.category_id,
           Date.now()
         ]);
+        console.log(`[Publications] Demo ${demo.id} added to location: ${publication.layer}${publication.community_id ? ' (' + publication.community_id + ')' : ''}`);
       }
     }
 

@@ -174,11 +174,14 @@ router.put('/:id', async (req, res) => {
 
     const result = await runQuery('UPDATE categories SET name = ? WHERE id = ?', [name, req.params.id]);
     
-    if (result.changes === 0) {
-      return res.status(404).json({ code: 404, message: 'Category not found', data: null });
+    // Check if the update was successful. If changes is 0, it might be because the name is the same.
+    // We can also verify that the category still exists.
+    const updatedCategory = await getRow('SELECT * FROM categories WHERE id = ?', [req.params.id]);
+    if (!updatedCategory) {
+      return res.status(404).json({ code: 404, message: 'Category not found after update', data: null });
     }
     
-    const updatedCategory = await getRow('SELECT * FROM categories WHERE id = ?', [req.params.id]);
+    console.log(`[Categories] Category ${req.params.id} renamed to ${name}`);
     res.json({ code: 200, message: 'Updated successfully', data: mapCategoryRow(updatedCategory) });
   } catch (error) {
     console.error('Error updating category:', error);

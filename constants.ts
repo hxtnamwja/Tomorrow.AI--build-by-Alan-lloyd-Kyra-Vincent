@@ -119,6 +119,14 @@ export const DICTIONARY = {
     generalAdminView: "Super Admin View",
     communityReview: "Community Review",
     clearChatHistory: "Clear Chat History",
+    editInfo: "Edit Info",
+    communityBasicInfo: "Basic Info",
+    openCommunityDesc: "Open Community - Anyone can join",
+    closedCommunityDesc: "Closed Community - Requires request or code",
+    convertToOpen: "Convert to Open",
+    convertToClosed: "Convert to Closed",
+    communityNameRequired: "Community name is required",
+    saveSuccess: "Saved successfully",
     
     // Bounty
     bountyStatus: "Status",
@@ -505,6 +513,14 @@ export const DICTIONARY = {
     generalAdminView: "超级管理员视角",
     communityReview: "社区审核",
     clearChatHistory: "清除聊天历史",
+    editInfo: "编辑信息",
+    communityBasicInfo: "社区基本信息",
+    openCommunityDesc: "开放社区 - 点击即可加入",
+    closedCommunityDesc: "封闭社区 - 需要申请或邀请码",
+    convertToOpen: "转换为开放社区",
+    convertToClosed: "转换为封闭社区",
+    communityNameRequired: "社区名称不能为空",
+    saveSuccess: "保存成功",
     
     // Bounty
     bountyStatus: "状态",
