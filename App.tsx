@@ -8,7 +8,7 @@ import {
   Target, Award, CheckCircle, Clock, Edit3, Save, Play, RefreshCw, Camera,
   LogOut, LayoutDashboard, Settings, User as UserIcon, KeyRound, Building2, Zap, Heart,
   HelpCircle, BookOpen, Menu, Send, MessageCircle, Repeat, MessageSquare, Moon, Sun,
-  Lock, Megaphone, Upload
+  Lock, Megaphone
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AiChatWidget } from './components/AiChatWidget';
@@ -18,7 +18,7 @@ import { Demo, Language, UserRole, Subject, Category, Layer, Bounty, Community, 
 import { DICTIONARY, getTranslation, calculateLevel, hasExclusiveAvatarBorder, canCreateCommunityWithoutApproval, isLevelAtLeast } from './constants';
 import { StorageService } from './services/storageService';
 import { AiService } from './services/aiService';
-import { BountiesAPI, PublicationsAPI, FeedbackAPI, CommunitiesAPI, AuthAPI, CategoriesAPI, invalidateCache as invalidateApiCache } from './services/apiService';
+import { BountiesAPI, PublicationsAPI, FeedbackAPI, CommunitiesAPI, AuthAPI } from './services/apiService';
 
 
 
@@ -130,9 +130,6 @@ export default function App() {
 
   // Context for uploading to a bounty
   const [bountyContext, setBountyContext] = useState<Bounty | null>(null);
-
-  // Context for quick upload (pre-fill layer/community/category)
-  const [uploadContext, setUploadContext] = useState<{ layer: Layer; communityId?: string; categoryId?: string } | null>(null);
 
   // Bounty detail modal state
   const [selectedBounty, setSelectedBounty] = useState<(Bounty & { solutions?: any[] }) | null>(null);
@@ -247,7 +244,7 @@ export default function App() {
   // Refresh data when user logs in or role changes
   useEffect(() => {
     if (isLoggedIn) {
-      refreshAllData(true);
+      refreshAllData();
     }
   }, [isLoggedIn, role, currentUserId]);
 
@@ -274,10 +271,6 @@ export default function App() {
   const refreshAllData = async (forceRefresh: boolean = false) => {
     const now = Date.now();
     const cacheExpiry = 5 * 60 * 1000; // 5分钟缓存
-    
-    if (forceRefresh) {
-        invalidateApiCache(''); // 强制清除 apiService 的内存缓存
-    }
     
     // 检查缓存是否有效
     const isCacheValid = !forceRefresh && (now - dataCache.lastUpdated) < cacheExpiry;
@@ -411,33 +404,24 @@ export default function App() {
   };
 
   const handleApprovePublication = async (id: string) => {
-    // 乐观更新：立即从待审批列表中移除
-    setPublications(prev => prev.filter(p => p.id !== id));
     try {
       await PublicationsAPI.approve(id);
-      invalidateApiCache('/demos');
-      invalidateApiCache('/publications');
-      // 可选：如果不希望每次都看到弹窗，可以去掉alert
-      // alert('发布已批准'); 
+      alert('发布已批准');
       await refreshAllData(true);
     } catch (err) {
       console.error('Failed to approve publication:', err);
-      alert('批准失败，正在恢复数据');
-      await refreshAllData(true); // 失败时回退
+      alert('批准失败');
     }
   };
 
   const handleRejectPublication = async (id: string, reason: string) => {
-    // 乐观更新
-    setPublications(prev => prev.filter(p => p.id !== id));
     try {
       await PublicationsAPI.reject(id, reason);
-      invalidateApiCache('/publications');
+      alert('发布已拒绝');
       await refreshAllData(true);
     } catch (err) {
       console.error('Failed to reject publication:', err);
-      alert('拒绝失败，正在恢复数据');
-      await refreshAllData(true); // 失败时回退
+      alert('拒绝失败');
     }
   };
 
@@ -480,7 +464,7 @@ export default function App() {
   // Reload demos when sort preference changes
   useEffect(() => {
     if (isLoggedIn) {
-      refreshAllData(true);
+      refreshAllData();
     }
   }, [sortBy]);
 
@@ -521,7 +505,7 @@ export default function App() {
         setLayer('general');
       }
       
-      await refreshAllData(true);
+      await refreshAllData();
     } catch (error: any) {
       console.error('Auth failed:', error);
       throw new Error(error.message || 'Authentication failed');
@@ -587,15 +571,9 @@ export default function App() {
   }, [communities, activeCommunityId]);
 
   const isCurrentCommunityAdmin = useMemo(() => {
-    if(role === 'general_admin') return true; // Super Admin Access
-    if(!activeCommunity) return false;
-    return activeCommunity.creatorId === currentUserId || (activeCommunity.adminMembers || []).includes(currentUserId);
-  }, [role, activeCommunity, currentUserId]);
-
-  const canPerformUserManagement = useMemo(() => {
-    if(role === 'general_admin') return true;
-    if(!activeCommunity) return false;
-    return activeCommunity.creatorId === currentUserId;
+      if(role === 'general_admin') return true; // Super Admin Access
+      if(!activeCommunity) return false;
+      return activeCommunity.creatorId === currentUserId;
   }, [role, activeCommunity, currentUserId]);
 
   // Filter communities for search and type
@@ -642,15 +620,6 @@ export default function App() {
   };
 
   const filteredDemos = useMemo(() => {
-    const validIds = activeCategory !== 'All' && layer === 'community' 
-      ? getCategoryAndChildrenIds(activeCategory) 
-      : [];
-    
-    // For general layer name matching
-    const categoryName = (activeCategory !== 'All' && layer === 'general') 
-      ? categories.find(c => c.id === activeCategory)?.name 
-      : null;
-
     return demos.filter(d => {
       // Layer Check
       if (d.layer !== layer) return false;
@@ -666,8 +635,10 @@ export default function App() {
       } else {
         if (layer === 'general') {
           // 处理category_id是分类名称的情况
+          const categoryName = categories.find(c => c.id === activeCategory)?.name;
           matchCategory = d.categoryId === activeCategory || (categoryName && d.categoryId === categoryName);
         } else {
+          const validIds = getCategoryAndChildrenIds(activeCategory);
           matchCategory = validIds.includes(d.categoryId);
         }
       }
@@ -744,30 +715,9 @@ export default function App() {
   };
 
   const handleAddCategory = async (name: string, parentId: string | null) => {
-    try {
-      const communityId = layer === 'community' ? activeCommunityId || undefined : undefined;
-      await CategoriesAPI.create(name, parentId, communityId);
-      await refreshAllData(true);
-      setCategoryModal({ isOpen: false, parentId: null });
-    } catch (err) {
-      console.error('Failed to create category:', err);
-      alert('创建目录失败');
-    }
-  };
-
-  const handleEditCategory = async (id: string, newName: string) => {
-    try {
-      await CategoriesAPI.update(id, newName);
-      
-      // Optimistic update
-      setCategories(prev => prev.map(c => c.id === id ? { ...c, name: newName } : c));
-      invalidateApiCache('/categories');
-      await refreshAllData(true);
-    } catch (err) {
-      console.error('Failed to update category name:', err);
-      alert('修改目录名称失败');
-      await refreshAllData(true);
-    }
+    const commId = layer === 'community' ? activeCommunityId : undefined;
+    await StorageService.addCategory(name, parentId, commId || undefined);
+    await refreshAllData(true);
   };
 
   const handleDeleteCategory = async (id: string) => {
@@ -1131,7 +1081,6 @@ export default function App() {
                     activeId={activeCategory}
                     onSelect={handleCategorySelect}
                     onAddSub={openCategoryModal}
-                    onEdit={handleEditCategory}
                     onDelete={handleDeleteCategory}
                     role={isCurrentCommunityAdmin ? 'community_admin' : 'user'}
                     t={t}
@@ -1342,7 +1291,7 @@ export default function App() {
           </button>
 
           <button
-             onClick={() => { setBountyContext(null); setUploadContext(null); setView('upload'); }}
+             onClick={() => { setBountyContext(null); setView('upload'); }}
              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${view === 'upload' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
             {t('upload')}
@@ -1537,34 +1486,6 @@ export default function App() {
             ))}
           </div>
         )}
-
-        {/* Gallery Header with Quick Upload */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 pb-4">
-          <div>
-            <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-              {activeCategory === 'All' ? t('allDemos') : categories.find(c => c.id === activeCategory)?.name || t('allDemos')}
-              <span className="text-sm font-normal text-slate-400 ml-2">({filteredDemos.length})</span>
-            </h2>
-          </div>
-          
-          {activeCategory !== 'All' && (
-            <button
-              onClick={() => {
-                setBountyContext(null);
-                setUploadContext({
-                  layer,
-                  communityId: activeCommunityId || undefined,
-                  categoryId: activeCategory
-                });
-                setView('upload');
-              }}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 hover:-translate-y-0.5 transition-all"
-            >
-              <Upload className="w-4 h-4" />
-              {t('quickUpload') || '快速上传'}
-            </button>
-          )}
-        </div>
 
         {/* Demos Grid */}
         {renderDemosGrid()}
@@ -2111,15 +2032,13 @@ export default function App() {
                      <p className="text-slate-500 mt-1">{role === 'general_admin' ? t('generalAdminView') : activeCommunity?.name}</p>
                  </div>
              </div>
-             {canPerformUserManagement && (
-               <button
-                  onClick={() => setIsUserManagementOpen(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 rounded-xl font-medium transition-colors"
-               >
-                   <Users className="w-4 h-4" />
-                   {t('userManagement')}
-               </button>
-             )}
+             <button
+                onClick={() => setIsUserManagementOpen(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 rounded-xl font-medium transition-colors"
+             >
+                 <Users className="w-4 h-4" />
+                 {t('userManagement')}
+             </button>
          </div>
 
          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -2158,8 +2077,8 @@ export default function App() {
              </div>
          )}
 
-         {/* Community Member Requests (Community Creator or Site Admin Only) */}
-         {canPerformUserManagement && activeCommunity && activeCommunity.pendingMembers.length > 0 && (
+         {/* Community Member Requests (Community Admin Only) */}
+         {isCurrentCommunityAdmin && activeCommunity && activeCommunity.pendingMembers.length > 0 && (
              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                  <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
                      <h3 className="font-bold text-slate-700 flex items-center gap-2">
@@ -2564,9 +2483,8 @@ export default function App() {
                       currentUserId={currentUserId}
                       role={role}
                       onSubmit={handleUpload} 
-                      onCancel={() => { setView('explore'); setUploadContext(null); setBountyContext(null); }}
+                      onCancel={() => setView('explore')}
                       bountyContext={bountyContext}
-                      initialContext={uploadContext}
                     />
                   )}
                   {view === 'admin' && renderAdminDashboard()}
@@ -2597,7 +2515,6 @@ export default function App() {
       {isUserManagementOpen && (
         <UserManagementPanel
           currentUserRole={role}
-          currentUserId={currentUserId}
           activeCommunity={activeCommunity}
           onClose={() => setIsUserManagementOpen(false)}
           onViewUserProfile={(userId) => {
