@@ -346,6 +346,19 @@ export default function App() {
     try {
     await StorageService.initialize();
 
+    // Directory data is required for navigation, but used to wait behind user
+    // and demo requests. Start it immediately and render it as soon as it lands.
+    const categoriesPromise: Promise<Category[]> = isCacheValid && dataCache.categories
+      ? Promise.resolve(dataCache.categories)
+      : StorageService.getCategories();
+    void categoriesPromise.then(freshCategories => {
+      if (refreshSequence.current === sequence) {
+        setCategories(freshCategories);
+      }
+    }).catch(error => {
+      console.error('[refreshAllData] Failed to load categories early:', error);
+    });
+
     // Refresh current user data if logged in
     if (isLoggedIn && currentUserId) {
       try {
@@ -421,7 +434,7 @@ export default function App() {
       usersData = dataCache.users;
     } else {
       const results = await Promise.allSettled([
-        StorageService.getCategories(),
+        categoriesPromise,
         StorageService.getBounties(),
         StorageService.getCommunities(),
         StorageService.getAllPublicUsers ? StorageService.getAllPublicUsers() : Promise.resolve([])

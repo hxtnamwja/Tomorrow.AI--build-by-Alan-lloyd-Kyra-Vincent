@@ -196,9 +196,14 @@ router.post('/', async (req, res) => {
   if (!user) {
     return;
   }
-  
-  if (user.community_points < rewardPoints) {
-    return res.status(400).json({ code: 400, message: 'Insufficient community points', data: null });
+
+  const normalizedRewardPoints = Number.parseInt(rewardPoints, 10);
+  if (!Number.isSafeInteger(normalizedRewardPoints) || normalizedRewardPoints <= 0) {
+    return res.status(400).json({ code: 400, message: 'Reward points must be a positive integer', data: null });
+  }
+
+  if ((user.points || 0) < normalizedRewardPoints) {
+    return res.status(400).json({ code: 400, message: 'Insufficient points', data: null });
   }
   
   const id = 'bounty-' + Date.now();
@@ -214,7 +219,7 @@ router.post('/', async (req, res) => {
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
-      id, title, description, reward, rewardPoints, layer, communityId || null, 
+      id, title, description, reward, normalizedRewardPoints, layer, communityId || null,
       'open', user.username, user.id, now, publishLayer, 
       publishCommunityId || null, publishCategoryId,
       programTitle || null, programDescription || null,
@@ -295,7 +300,10 @@ router.patch('/:bountyId/solutions/:solutionId', async (req, res) => {
     return res.status(403).json({ code: 403, message: 'Forbidden', data: null });
   }
   
-  const solution = await getRow('SELECT * FROM bounty_solutions WHERE id = ?', [req.params.solutionId]);
+  const solution = await getRow(
+    'SELECT * FROM bounty_solutions WHERE id = ? AND bounty_id = ?',
+    [req.params.solutionId, req.params.bountyId]
+  );
   if (!solution) {
     return res.status(404).json({ code: 404, message: 'Solution not found', data: null });
   }
@@ -306,15 +314,27 @@ router.patch('/:bountyId/solutions/:solutionId', async (req, res) => {
     await runQuery('BEGIN TRANSACTION');
     
     if (action === 'accept') {
+      if (bounty.status === 'closed' || solution.status !== 'pending') {
+        await runQuery('ROLLBACK');
+        return res.status(409).json({ code: 409, message: 'This bounty solution has already been reviewed', data: null });
+      }
+
       const creator = await getRow('SELECT * FROM users WHERE id = ?', [bounty.creator_id]);
       
-      if (!creator || creator.community_points < bounty.reward_points) {
+      if (!creator || creator.points < bounty.reward_points) {
         await runQuery('ROLLBACK');
-        return res.status(400).json({ code: 400, message: 'Creator has insufficient community points', data: null });
+        return res.status(400).json({ code: 400, message: 'Creator has insufficient points', data: null });
       }
       
-      await runQuery('UPDATE users SET community_points = community_points - ? WHERE id = ?', [bounty.reward_points, bounty.creator_id]);
-      await runQuery('UPDATE users SET community_points = community_points + ? WHERE id = ?', [bounty.reward_points, solution.user_id]);
+      const debit = await runQuery(
+        'UPDATE users SET points = points - ? WHERE id = ? AND points >= ?',
+        [bounty.reward_points, bounty.creator_id, bounty.reward_points]
+      );
+      if (debit.changes !== 1) {
+        await runQuery('ROLLBACK');
+        return res.status(400).json({ code: 400, message: 'Creator has insufficient points', data: null });
+      }
+      await runQuery('UPDATE users SET points = points + ? WHERE id = ?', [bounty.reward_points, solution.user_id]);
       
       await runQuery(`
         UPDATE bounty_solutions 

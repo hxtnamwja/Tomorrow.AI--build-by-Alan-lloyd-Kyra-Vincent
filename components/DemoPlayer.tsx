@@ -562,18 +562,22 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, onDemoUp
       console.log('[DemoPlayer] Structure result:', result);
       if (result.code === 200) {
         setProjectStructure(result.data.structure || []);
+        setLoadingStructure(false);
         
         if (result.data.structure && result.data.structure.length > 0) {
           const firstFile = result.data.structure.find(f => f.type === 'file');
           if (firstFile) {
-            try {
+            // Original-version detection is optional and must not delay the directory tree.
+            void (async () => {
+              try {
               const encodedPath = firstFile.path.split('/').map(encodeURIComponent).join('/');
               const testResponse = await fetch(`${apiBase}/demos/${demo.id}/files/${encodedPath}?original=true`);
               const testResult = await testResponse.json();
               setHasOriginalVersion(testResult.code === 200);
-            } catch (e) {
-              setHasOriginalVersion(false);
-            }
+              } catch (e) {
+                setHasOriginalVersion(false);
+              }
+            })();
           }
         }
       } else {

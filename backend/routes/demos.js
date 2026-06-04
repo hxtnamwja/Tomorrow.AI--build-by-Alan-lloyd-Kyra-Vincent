@@ -29,6 +29,7 @@ if (!fs.existsSync(PROJECTS_DIR)) {
 fs.mkdirSync(UPLOAD_TEMP_DIR, { recursive: true });
 
 const router = Router();
+const projectStructureCache = new Map();
 
 const mapDemoRow = (row) => {
   if (!row) return null;
@@ -1077,8 +1078,16 @@ router.get('/:id/structure', async (req, res) => {
       });
     }
     
-    const projectInfo = analyzeProjectStructure(projectDir);
+    const projectMtime = fs.statSync(projectDir).mtimeMs;
+    const cachedProject = projectStructureCache.get(demo.id);
+    const projectInfo = cachedProject?.mtime === projectMtime
+      ? cachedProject.data
+      : analyzeProjectStructure(projectDir);
+    if (!cachedProject || cachedProject.mtime !== projectMtime) {
+      projectStructureCache.set(demo.id, { mtime: projectMtime, data: projectInfo });
+    }
     
+    res.setHeader('Cache-Control', 'private, max-age=300');
     res.json({ 
       code: 200, 
       message: 'Success', 
