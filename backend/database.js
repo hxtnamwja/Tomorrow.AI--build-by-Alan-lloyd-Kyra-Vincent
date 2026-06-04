@@ -119,12 +119,11 @@ export const ensureSiteSubAdminRole = async () => {
 
   console.log('[Database] Migrating users.role constraint for site sub-admin support');
   await runQuery('PRAGMA foreign_keys = OFF');
-  await runQuery('PRAGMA legacy_alter_table = ON');
+  await runQuery('PRAGMA legacy_alter_table = OFF');
   await runQuery('BEGIN TRANSACTION');
   try {
-    await runQuery('ALTER TABLE users RENAME TO users_legacy_role');
     await runQuery(`
-      CREATE TABLE users (
+      CREATE TABLE users_new_role (
         id TEXT PRIMARY KEY,
         username TEXT UNIQUE NOT NULL,
         role TEXT NOT NULL CHECK(role IN ('user', 'general_admin', 'site_sub_admin')),
@@ -152,7 +151,7 @@ export const ensureSiteSubAdminRole = async () => {
       )
     `);
     await runQuery(`
-      INSERT INTO users (
+      INSERT INTO users_new_role (
         id, username, role, created_at, is_banned, ban_reason, contact_info, payment_qr,
         bio, password, contribution_points, points, favorites, avatar_border, username_color,
         profile_theme, avatar_accessory, avatar_effect, username_effect, profile_background,
@@ -163,15 +162,55 @@ export const ensureSiteSubAdminRole = async () => {
         bio, password, contribution_points, points, favorites, avatar_border, username_color,
         profile_theme, avatar_accessory, avatar_effect, username_effect, profile_background,
         custom_title, unlocked_achievements, owned_items, community_points
-      FROM users_legacy_role
+      FROM users
     `);
-    await runQuery('DROP TABLE users_legacy_role');
+    await runQuery('DROP TABLE users');
+    await runQuery('ALTER TABLE users_new_role RENAME TO users');
     await runQuery('COMMIT');
   } catch (error) {
     await runQuery('ROLLBACK');
     throw error;
   } finally {
-    await runQuery('PRAGMA legacy_alter_table = OFF');
     await runQuery('PRAGMA foreign_keys = ON');
+  }
+};
+
+export const repairOrphanedCommunities = async () => {
+  const orphaned = await getAllRows(`
+    SELECT community_id, MIN(creator_id) AS creator_id
+    FROM (
+      SELECT community_id, creator_id FROM demos WHERE community_id IS NOT NULL
+      UNION ALL
+      SELECT community_id, NULL AS creator_id FROM categories WHERE community_id IS NOT NULL
+    )
+    WHERE community_id NOT IN (SELECT id FROM communities)
+    GROUP BY community_id
+  `);
+
+  if (orphaned.length === 0) return;
+
+  console.error(`[Data Recovery] Found ${orphaned.length} missing community records referenced by content`);
+  const fallbackUser = await getRow("SELECT id FROM users WHERE role = 'general_admin' ORDER BY created_at ASC LIMIT 1");
+  for (const orphan of orphaned) {
+    const creatorId = orphan.creator_id || fallbackUser?.id;
+    if (!creatorId) {
+      console.error('[Data Recovery] Cannot restore community without an existing user:', orphan.community_id);
+      continue;
+    }
+    await runQuery(`
+      INSERT OR IGNORE INTO communities (id, name, description, creator_id, code, status, type, created_at)
+      VALUES (?, ?, ?, ?, ?, 'approved', 'closed', ?)
+    `, [
+      orphan.community_id,
+      `恢复的社区 ${orphan.community_id.slice(-6)}`,
+      '该社区记录已从仍然存在的程序和目录引用中自动恢复，请管理员补充名称与介绍。',
+      creatorId,
+      `recovered-${orphan.community_id}-${Date.now()}`,
+      Date.now()
+    ]);
+    await runQuery(`
+      INSERT OR IGNORE INTO community_members (community_id, user_id, status, role, joined_at)
+      VALUES (?, ?, 'member', 'admin', ?)
+    `, [orphan.community_id, creatorId, Date.now()]);
   }
 };

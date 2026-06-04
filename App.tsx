@@ -39,6 +39,7 @@ import { TeamPage } from './components/TeamPage';
 import { AnnouncementCard } from './components/AnnouncementCard';
 import { AnnouncementManager } from './components/AnnouncementManager';
 import { TagDisplay } from './components/TagDisplay';
+import { PlayfulLoader } from './components/PlayfulLoader';
 
 import { AuthPage } from './components/AuthPage';
 
@@ -122,6 +123,8 @@ export default function App() {
   const [pendingUrlDemoId, setPendingUrlDemoId] = useState<string | null>(initialUrlState.demoId);
   const [openingDemoId, setOpeningDemoId] = useState<string | null>(null);
   const [demosLoading, setDemosLoading] = useState(true);
+  const [contentLoading, setContentLoading] = useState(true);
+  const refreshSequence = useRef(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'date' | 'likes'>('date');
   
@@ -330,6 +333,9 @@ export default function App() {
   };
 
   const refreshAllData = async (forceRefresh: boolean = false) => {
+    const sequence = ++refreshSequence.current;
+    setContentLoading(true);
+    setDemosLoading(true);
     const now = Date.now();
     const cacheExpiry = 5 * 60 * 1000; // 5分钟缓存
     if (forceRefresh) clearCache();
@@ -337,6 +343,7 @@ export default function App() {
     // 检查缓存是否有效
     const isCacheValid = !forceRefresh && (now - dataCache.lastUpdated) < cacheExpiry;
     
+    try {
     await StorageService.initialize();
 
     // Refresh current user data if logged in
@@ -355,7 +362,6 @@ export default function App() {
     }
 
     // Load demos based on sort preference and current layer
-    setDemosLoading(true);
     let demosData: Demo[];
     const currentCachedDemos = dataCache.demos || [];
     
@@ -414,12 +420,19 @@ export default function App() {
       communitiesData = dataCache.communities;
       usersData = dataCache.users;
     } else {
-      [categoriesData, bountiesData, communitiesData, usersData] = await Promise.all([
+      const results = await Promise.allSettled([
         StorageService.getCategories(),
         StorageService.getBounties(),
         StorageService.getCommunities(),
-        StorageService.getAllPublicUsers ? StorageService.getAllPublicUsers() : []
-      ]).catch(() => [null, null, null, []]);
+        StorageService.getAllPublicUsers ? StorageService.getAllPublicUsers() : Promise.resolve([])
+      ]);
+      categoriesData = results[0].status === 'fulfilled' ? results[0].value : dataCache.categories;
+      bountiesData = results[1].status === 'fulfilled' ? results[1].value : dataCache.bounties;
+      communitiesData = results[2].status === 'fulfilled' ? results[2].value : dataCache.communities;
+      usersData = results[3].status === 'fulfilled' ? results[3].value : dataCache.users;
+      results.forEach(result => {
+        if (result.status === 'rejected') console.error('[refreshAllData] Partial refresh failed:', result.reason);
+      });
     }
     
     const communitiesDataArray = communitiesData || [];
@@ -430,7 +443,6 @@ export default function App() {
     setCommunities(communitiesDataArray);
     setAllUsers(usersData || []);
     setAnnouncements(announcementsData || []);
-    setDemosLoading(false);
     
     // 更新缓存
     setDataCache({
@@ -470,6 +482,12 @@ export default function App() {
         }
       } catch (err) {
         console.error('Failed to load feedback:', err);
+      }
+    }
+    } finally {
+      if (sequence === refreshSequence.current) {
+        setDemosLoading(false);
+        setContentLoading(false);
       }
     }
   };
@@ -1715,12 +1733,7 @@ export default function App() {
   };
 
   const renderDemosGrid = () => demosLoading ? (
-    <div className="min-h-[50vh] flex items-center justify-center">
-      <div className="text-center">
-        <div className="w-12 h-12 mx-auto mb-4 rounded-full border-4 border-indigo-100 border-t-indigo-600 animate-spin" />
-        <p className="text-sm font-medium text-slate-500">正在加载社区素材...</p>
-      </div>
-    </div>
+    <PlayfulLoader message={layer === 'community' ? '正在探索社区素材...' : '正在整理知识素材...'} />
   ) : (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8 pb-20">
       {filteredDemos.map(demo => {
@@ -1963,6 +1976,9 @@ export default function App() {
   const renderGallery = () => renderGalleryWithAnnouncements();
 
   const renderCommunityHall = () => {
+      if (contentLoading && communities.length === 0) {
+        return <PlayfulLoader message="正在召集社区成员..." />;
+      }
       return (
           <div className="space-y-8 pb-20">
               <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 border-b border-slate-200 pb-6 gap-6">
@@ -2696,6 +2712,11 @@ export default function App() {
       {renderSidebar()}
 
       <main className="pt-20 md:pt-24 pb-24 md:pb-20 px-3 sm:px-4 md:px-10 md:pl-80 w-full transition-all duration-300 relative z-10">
+        {contentLoading && (
+          <div className="fixed inset-0 md:left-72 top-16 z-40 bg-slate-50/88 backdrop-blur-sm flex items-center justify-center">
+            <PlayfulLoader message={layer === 'community' ? '正在刷新社区世界...' : '正在整理知识宇宙...'} />
+          </div>
+        )}
         <div className="w-full max-w-[1400px] mx-auto">
           <AnimatePresence mode="wait">
             <motion.div

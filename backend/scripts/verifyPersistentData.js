@@ -1,4 +1,6 @@
-import { getAllRows, getRow } from '../database.js';
+import { getAllRows, getRow, repairOrphanedCommunities } from '../database.js';
+
+await repairOrphanedCommunities();
 
 const integrity = await getRow('PRAGMA integrity_check');
 if (!integrity || integrity.integrity_check !== 'ok') {
