@@ -2,6 +2,11 @@ import { Demo, Category, Bounty, Community, User, UserStats, DemoPublication, Fe
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
 
+export const resolveApiUrl = (url?: string): string | undefined => {
+  if (!url || !url.startsWith('/api/v1/')) return url;
+  return `${API_BASE_URL}${url.slice('/api/v1'.length)}`;
+};
+
 // API请求缓存
 const apiCache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_EXPIRY = 5 * 60 * 1000; // 5分钟缓存
@@ -149,6 +154,7 @@ export const DemosAPI = {
     authorId?: string;
   }): Promise<Demo[]> => {
     const queryParams = new URLSearchParams();
+    queryParams.set('fields', 'basic');
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
         if (value !== undefined && value !== null) {
@@ -158,7 +164,10 @@ export const DemosAPI = {
     }
     const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
     const result = await apiRequest<Demo[]>(`/demos${query}`);
-    return result.data;
+    return result.data.map(demo => ({
+      ...demo,
+      thumbnailUrl: resolveApiUrl(demo.thumbnailUrl)
+    }));
   },
   
   getById: async (id: string): Promise<Demo> => {

@@ -157,7 +157,7 @@ router.get('/pending', async (req, res) => {
   `;
   const params = [];
 
-  if (user.role !== 'general_admin') {
+  if (user.role !== 'general_admin' && user.role !== 'site_sub_admin') {
     query += ` AND p.layer = ? AND p.community_id IN (
       SELECT id FROM communities WHERE creator_id = ?
       UNION
@@ -192,7 +192,7 @@ router.patch('/:id/status', async (req, res) => {
   }
 
   let hasPermission = false;
-  if (user.role === 'general_admin') {
+  if (user.role === 'general_admin' || user.role === 'site_sub_admin') {
     hasPermission = true;
   } else if (publication.layer === 'community' && publication.community_id) {
     hasPermission = await isCommunityAdmin(publication.community_id, user.id);

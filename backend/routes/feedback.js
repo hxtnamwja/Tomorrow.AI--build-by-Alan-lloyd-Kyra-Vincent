@@ -103,7 +103,7 @@ router.get('/pending', async (req, res) => {
     }
 
     let rows;
-    if (user.role === 'general_admin') {
+    if (user.role === 'general_admin' || user.role === 'site_sub_admin') {
       // General admin sees all pending feedback
       rows = await getAllRows(`
         SELECT * FROM feedback 
@@ -114,7 +114,11 @@ router.get('/pending', async (req, res) => {
       // Community admin sees feedback for their communities
       const communities = await getAllRows(`
         SELECT * FROM communities WHERE creator_id = ?
-      `, [user.id]);
+        UNION
+        SELECT c.* FROM communities c
+        JOIN community_members cm ON cm.community_id = c.id
+        WHERE cm.user_id = ? AND cm.status = 'member' AND cm.role = 'admin'
+      `, [user.id, user.id]);
       
       const communityIds = communities.map(c => c.id);
       
@@ -164,12 +168,17 @@ router.put('/:id/status', async (req, res) => {
 
     // Check permissions
     let hasPermission = false;
-    if (user.role === 'general_admin') {
+    if (user.role === 'general_admin' || user.role === 'site_sub_admin') {
       hasPermission = true;
     } else if (feedback.community_id) {
       const community = await getRow('SELECT * FROM communities WHERE id = ?', [feedback.community_id]);
-      if (community && community.creator_id === user.id) {
-        hasPermission = true;
+      if (community && community.creator_id === user.id) hasPermission = true;
+      if (!hasPermission) {
+        const membership = await getRow(
+          "SELECT id FROM community_members WHERE community_id = ? AND user_id = ? AND status = 'member' AND role = 'admin'",
+          [feedback.community_id, user.id]
+        );
+        hasPermission = !!membership;
       }
     }
 

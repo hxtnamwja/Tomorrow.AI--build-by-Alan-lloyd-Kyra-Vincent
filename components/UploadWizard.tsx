@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Target, Globe, Users, Check, Upload, FileCode, Play, Image, X, FolderOpen, FileText, Sparkles, CheckCircle2, Database, Users2, RefreshCw, Zap, Bot, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Demo, Category, Subject, Bounty, Layer, Community } from '../types';
 import { AiService, GeneratedProject } from '../services/aiService';
@@ -146,12 +146,14 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
   communities: Community[],
   currentUserId: string,
   role: string,
-  onSubmit: (d: Demo) => void, 
+  onSubmit: (d: Demo) => Promise<void> | void,
   onCancel: () => void,
   bountyContext: Bounty | null,
   initialContext?: { layer: Layer; communityId?: string; categoryId?: string } | null;
 }) => {
   const [step, setStep] = useState(bountyContext ? 2 : (initialContext ? 1 : 0));
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitStartedRef = useRef(false);
   const [isPlayground, setIsPlayground] = useState(false);
   const [editorMode, setEditorMode] = useState('upload' as 'upload' | 'paste');
   const [projectMode, setProjectMode] = useState('single' as 'single' | 'multi');
@@ -469,6 +471,10 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
   };
 
   const handleSubmit = async () => {
+    if (submitStartedRef.current) return;
+    submitStartedRef.current = true;
+    setIsSubmitting(true);
+    try {
     console.log('=== handleSubmit ===');
     console.log('aiGeneratedFiles.length:', aiGeneratedFiles.length);
     console.log('aiGeneratedFiles:', aiGeneratedFiles.map(f => ({ path: f.path, length: f.content.length })));
@@ -557,7 +563,7 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
         console.log('Upload result:', result);
         
         if (result.code === 200) {
-          onSubmit({
+          await onSubmit({
             id: result.data.id,
             title: formData.title,
             description: formData.description,
@@ -635,7 +641,7 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
         const result = await response.json();
         
         if (result.code === 200) {
-          onSubmit({
+          await onSubmit({
             id: result.data.id,
             title: formData.title,
             description: formData.description,
@@ -686,7 +692,11 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
         tags: formData.tags
       };
       console.log('Demo to submit:', { codeLength: newDemo.code?.length, originalCodeLength: newDemo.originalCode?.length });
-      onSubmit(newDemo);
+      await onSubmit(newDemo);
+    }
+    } finally {
+      submitStartedRef.current = false;
+      setIsSubmitting(false);
     }
   };
   
@@ -695,7 +705,16 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
   const myCommunities = communities.filter(c => c.members.includes(currentUserId) && c.status === 'approved');
 
   return (
-    <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden min-h-[600px] flex flex-col">
+    <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden min-h-[600px] flex flex-col relative">
+       {isSubmitting && (
+         <div className="absolute inset-0 z-50 bg-white/80 backdrop-blur-sm flex items-center justify-center">
+           <div className="text-center px-6">
+             <div className="w-12 h-12 mx-auto mb-4 rounded-full border-4 border-indigo-200 border-t-indigo-600 animate-spin" />
+             <p className="font-bold text-slate-800">正在上传，请勿重复提交</p>
+             <p className="text-sm text-slate-500 mt-1">数据已开始传输，完成后会自动跳转</p>
+           </div>
+         </div>
+       )}
        <div className="px-8 py-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
          <div>
            <h2 className="text-xl font-bold text-slate-800">{t('uploadTitle')}</h2>
@@ -1377,7 +1396,7 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
               <div className="flex-1 min-h-[400px] border-2 border-slate-200 border-dashed rounded-xl bg-white overflow-hidden relative">
                  {projectMode === 'single' ? (
                    <iframe 
-                     key={`single-${formData.code.length}-${Date.now()}`}
+                     key={`single-${formData.code.length}`}
                      srcDoc={formData.code} 
                      className="w-full h-full absolute inset-0 border-0" 
                      title={t('stepPreview')} 
@@ -1385,7 +1404,7 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
                    />
                  ) : previewContent ? (
                    <iframe 
-                     key={`multi-${previewContent.length}-${Date.now()}`}
+                     key={`multi-${previewContent.length}`}
                      srcDoc={previewContent} 
                      className="w-full h-full absolute inset-0 border-0" 
                      title={t('stepPreview')} 
@@ -1432,7 +1451,8 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
                setStep(s => s - 1);
              }
            }}
-           className="px-6 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg transition-colors"
+           disabled={isSubmitting}
+           className="px-6 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-50"
          >
            {bountyContext && step === 2 ? t('cancel') : 
             bountyContext && step === 3 ? t('back') :
@@ -1453,6 +1473,7 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
                 <button 
                 onClick={() => step === 3 ? handleSubmit() : (bountyContext ? setStep(3) : setStep(s => s + 1))}
                 disabled={
+                    isSubmitting ||
                     (bountyContext ? 
                       (step === 2 && (!formData.code || formData.code.trim().length === 0) && !zipFile) :
                       (step === 0 && formData.layer === 'community' && !formData.communityId) ||
@@ -1461,7 +1482,7 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
                 }
                 className="px-6 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                {step === 3 ? t('submit') : t('next')}
+                {step === 3 ? (isSubmitting ? '上传中...' : t('submit')) : t('next')}
                 </button>
             )}
          </div>
@@ -1469,4 +1490,3 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
     </div>
   );
 };
-

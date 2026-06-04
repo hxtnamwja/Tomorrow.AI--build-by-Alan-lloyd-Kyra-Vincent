@@ -183,7 +183,7 @@ router.patch('/:id/status', async (req, res) => {
     return;
   }
 
-  if (user.role !== 'general_admin') {
+  if (user.role !== 'general_admin' && user.role !== 'site_sub_admin') {
     return res.status(403).json({ code: 403, message: 'Forbidden', data: null });
   }
 
@@ -298,8 +298,16 @@ router.post('/:id/members/manage', async (req, res) => {
         return res.status(400).json({ code: 400, message: 'Cannot kick community creator', data: null });
       }
     } else {
-      // For accept/reject_request, general_admin can also assist
-      if (community.creator_id !== user.id && user.role !== 'general_admin') {
+      const communityAdmin = await getRow(
+        "SELECT id FROM community_members WHERE community_id = ? AND user_id = ? AND status = 'member' AND role = 'admin'",
+        [req.params.id, user.id]
+      );
+      if (
+        community.creator_id !== user.id &&
+        user.role !== 'general_admin' &&
+        user.role !== 'site_sub_admin' &&
+        !communityAdmin
+      ) {
         return res.status(403).json({ code: 403, message: 'Forbidden', data: null });
       }
     }

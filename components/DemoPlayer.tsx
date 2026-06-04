@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { X, RefreshCw, Sparkles, Heart, Maximize2, Minimize2, Smartphone, Send, RotateCcw, Trash2, FolderOpen, AlertTriangle, Monitor, UserCircle, Trash, Award, BookOpen, FlaskConical, Beaker, Trophy, Edit3, Hash } from 'lucide-react';
+import { X, RefreshCw, Sparkles, Heart, Maximize2, Minimize2, Smartphone, Send, Trash2, FolderOpen, AlertTriangle, Monitor, UserCircle, Trash, Award, BookOpen, FlaskConical, Beaker, Trophy, Edit3, Hash } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Demo, Category, Subject, UserRole } from '../types';
 import { AiService } from '../services/aiService';
-import { DemosAPI } from '../services/apiService';
+import { clearCache, DemosAPI } from '../services/apiService';
 import { AIMessageContent } from './AIMessageContent';
 import { calculateLevel, getLevelInfo, LEVEL_CONFIG, COMMON_TAGS, getTagColor, getTagName, isLevelAtLeast } from '../constants';
 import { TagSelector } from './TagSelector';
@@ -50,9 +50,11 @@ const CATEGORY_ID_TO_TRANSLATION_KEY: Record<string, string> = {
   'cat-creative-tools': 'creativeTools'
 };
 
-export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpenDemo, onLikeChange, onViewUserProfile, allUsers, onPublishToOther, onReportDemo, currentUserRole, categories }: { demo: Demo, currentUserId?: string, currentUser?: any, onClose: () => void, t: any, onOpenDemo?: (demoId: string) => void, onLikeChange?: (demoId: string, likeCount: number, userLiked: boolean) => void, onViewUserProfile?: (userId: string) => void, allUsers?: any[], onPublishToOther?: () => void, onReportDemo?: () => void, currentUserRole?: UserRole, categories?: Category[] }) => {
+export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, onDemoUpdated, t, onOpenDemo, onLikeChange, onViewUserProfile, allUsers, onPublishToOther, onReportDemo, currentUserRole, categories }: { demo: Demo, currentUserId?: string, currentUser?: any, onClose: () => void, onDemoUpdated?: () => Promise<void> | void, t: any, onOpenDemo?: (demoId: string) => void, onLikeChange?: (demoId: string, likeCount: number, userLiked: boolean) => void, onViewUserProfile?: (userId: string) => void, allUsers?: any[], onPublishToOther?: () => void, onReportDemo?: () => void, currentUserRole?: UserRole, categories?: Category[] }) => {
   const [activeTab, setActiveTab] = useState<'basicInfo' | 'code' | 'ai'>('basicInfo');
   const [iframeKey, setIframeKey] = useState(0);
+  const [previewSession, setPreviewSession] = useState(() => Date.now());
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const [aiMessages, setAiMessages] = useState<{role: 'user' | 'model', text: string}[]>([]);
   const [aiLoading, setAiLoading] = useState(false);
   const [demoLoading, setDemoLoading] = useState(true);
@@ -74,12 +76,12 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
       const encodedPath = demo.entryFile.split('/').map(encodeURIComponent).join('/');
       // 使用相对路径: /projects/demo-xxx/path/to/index.html
       // Nginx 会拦截 /projects/* 并转发到后端
-      const url = `/projects/${demo.id}/${encodedPath}`;
+      const url = `/projects/${demo.id}/${encodedPath}?previewSession=${previewSession}`;
       console.log('[DemoPlayer] Preview URL:', url);
       return url;
     }
     return undefined;
-  }, [demo, isMultiFile]);
+  }, [demo, isMultiFile, previewSession]);
 
   // Mixed Content 防御：将 http:// 替换为 https://
   const sanitizeMixedContent = (code: string): string => {
@@ -379,8 +381,7 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
     
     setEditLoading(true);
     try {
-      // 使用相对路径
-      const apiBase = '/api/v1';
+      const apiBase = import.meta.env.VITE_API_URL || '/api/v1';
       const formData = new FormData();
       
       formData.append('title', editTitle);
@@ -406,6 +407,8 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
       const result = await response.json();
       
       if (result.code === 200) {
+        clearCache();
+        await onDemoUpdated?.();
         alert(t('updateSubmitted'));
         setIsEditModalOpen(false);
         setEditZipFile(null);
@@ -635,7 +638,9 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
 
   // Mobile fullscreen state
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isImmersive, setIsImmersive] = useState(false);
   const previewContainerRef = useRef<HTMLDivElement>(null);
+  const isExpandedPreview = isFullscreen || isImmersive;
   
   // Control panel visibility
   const [showControls, setShowControls] = useState(true);
@@ -655,6 +660,22 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
   
   const handleResetZoom = () => {
     setZoomLevel(1);
+  };
+
+  const applyIframeZoom = () => {
+    const root = iframeRef.current?.contentDocument?.documentElement;
+    if (root) root.style.zoom = String(zoomLevel);
+  };
+
+  useEffect(() => {
+    applyIframeZoom();
+  }, [zoomLevel, iframeKey, previewSession]);
+
+  const reloadPreview = () => {
+    setDemoLoading(true);
+    setZoomLevel(1);
+    setPreviewSession(Date.now());
+    setIframeKey(key => key + 1);
   };
 
   // Handle window resize for responsive layout
@@ -728,18 +749,6 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
             try {
               await requestFullscreen.call(element);
               
-              // Try to lock to landscape orientation on mobile after a short delay
-              setTimeout(async () => {
-                try {
-                  const orientation = screen.orientation as any;
-                  if (orientation && orientation.lock) {
-                    await orientation.lock('landscape');
-                  }
-                } catch (orientationErr) {
-                  console.warn('Orientation lock failed:', orientationErr);
-                }
-              }, 100);
-              
               setIsFullscreen(true);
               return;
             } catch (fullscreenErr) {
@@ -751,13 +760,6 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
           console.log('Using CSS fullscreen fallback');
           setIsFullscreen(true);
           
-          // Try to suggest landscape orientation
-          setTimeout(() => {
-            const orientation = screen.orientation as any;
-            if (orientation && orientation.lock) {
-              orientation.lock('landscape').catch(() => {});
-            }
-          }, 100);
         }
       } catch (err) {
         console.warn('Fullscreen request failed:', err);
@@ -777,16 +779,6 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
           await exitFullscreen.call(document);
         }
         
-        // Unlock orientation
-        try {
-          const orientation = screen.orientation as any;
-          if (orientation && orientation.unlock) {
-            await orientation.unlock();
-          }
-        } catch (orientationErr) {
-          console.warn('Orientation unlock failed:', orientationErr);
-        }
-        
         setIsFullscreen(false);
       } catch (err) {
         console.warn('Exit fullscreen failed:', err);
@@ -803,41 +795,10 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
       if (!isNativeFullscreen && isFullscreen) {
         setIsFullscreen(false);
       }
-      // Unlock orientation when exiting fullscreen
-      const orientation = screen.orientation as any;
-      if (!isNativeFullscreen && orientation && orientation.unlock) {
-        orientation.unlock();
-      }
     };
 
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
-  }, [isFullscreen]);
-
-  // Handle orientation change to show/hide rotate hint
-  useEffect(() => {
-    const rotateHint = document.getElementById('rotate-hint');
-    if (!rotateHint) return;
-
-    const handleOrientationChange = () => {
-      const isLandscape = window.innerWidth > window.innerHeight;
-      if (isLandscape) {
-        rotateHint.style.display = 'none';
-      } else {
-        rotateHint.style.display = 'flex';
-      }
-    };
-
-    // Check initial orientation
-    handleOrientationChange();
-
-    window.addEventListener('resize', handleOrientationChange);
-    window.addEventListener('orientationchange', handleOrientationChange);
-    
-    return () => {
-      window.removeEventListener('resize', handleOrientationChange);
-      window.removeEventListener('orientationchange', handleOrientationChange);
-    };
   }, [isFullscreen]);
 
   // Load like status when component mounts
@@ -1048,9 +1009,9 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 bg-slate-900/95 backdrop-blur-md flex items-center justify-center p-0 md:p-6"
     >
-      <div className={`w-full h-full bg-slate-900 md:rounded-2xl shadow-2xl relative flex flex-col md:flex-row overflow-hidden border border-slate-800 ${isFullscreen ? '!flex-col' : ''}`}>
-        {/* Only show close button when NOT fullscreen */}
-        {!isFullscreen && (
+      <div className={`w-full h-full bg-slate-900 md:rounded-2xl shadow-2xl relative flex flex-col md:flex-row overflow-hidden border border-slate-800 ${isExpandedPreview ? '!flex-col' : ''}`}>
+        {/* Only show close button when the preview is not expanded */}
+        {!isExpandedPreview && (
           <button 
             onClick={onClose} 
             className="absolute top-4 left-4 z-20 bg-black/30 hover:bg-black/50 backdrop-blur text-white p-2 rounded-lg transition-colors border border-white/20"
@@ -1063,15 +1024,13 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
         {/* Left Side: Preview */}
         <div
           ref={previewContainerRef}
-          className={`flex-1 bg-slate-900 relative flex flex-col ${isFullscreen ? 'h-full w-full fixed inset-0 z-[100] !max-w-none !rounded-none' : 'h-[50vh] md:h-full overflow-hidden md:rounded-l-2xl'}`}
+          className={`flex-1 bg-slate-900 relative flex flex-col ${isExpandedPreview ? 'h-full w-full fixed inset-0 z-[100] !max-w-none !rounded-none' : 'h-[50vh] md:h-full overflow-hidden md:rounded-l-2xl'}`}
         >
           {/* Main Preview Area */}
-          <div className={`flex-1 relative w-full bg-white overflow-auto ${isFullscreen && showControls ? 'h-[calc(100vh-56px)]' : (isFullscreen ? 'h-full' : '')}`}>
-            <div 
-              className="w-full h-full origin-center transition-transform duration-200"
-              style={{ transform: `scale(${zoomLevel})` }}
-            >
+          <div className={`flex-1 relative w-full bg-white overflow-hidden ${isExpandedPreview && showControls ? 'h-[calc(100vh-56px)]' : (isExpandedPreview ? 'h-full' : '')}`}>
+            <div className="w-full h-full">
               <iframe
+                ref={iframeRef}
                 key={iframeKey}
                 src={isMultiFile ? previewUrl : undefined}
                 srcDoc={!isMultiFile ? getDemoCodeWithInjection : undefined}
@@ -1079,7 +1038,10 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
                 title={demo.title}
                 sandbox="allow-scripts allow-same-origin allow-popups allow-modals allow-forms allow-downloads allow-pointer-lock"
                 allow="camera; microphone; geolocation; fullscreen; display-capture; autoplay; clipboard-read; clipboard-write; picture-in-picture"
-                onLoad={() => setDemoLoading(false)}
+                onLoad={() => {
+                  applyIframeZoom();
+                  setDemoLoading(false);
+                }}
                 onError={() => setDemoLoading(false)}
               />
             </div>
@@ -1092,40 +1054,17 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
               </div>
             )}
             {/* Mobile Fullscreen Hint */}
-            {!isFullscreen && (
+            {!isExpandedPreview && (
               <div className="md:hidden absolute top-4 right-4 bg-indigo-600/90 backdrop-blur-sm text-white px-3 py-2 rounded-lg shadow-lg animate-pulse">
                 <div className="flex items-center gap-2">
                   <Smartphone className="w-4 h-4" />
-                  <span className="text-xs font-bold">{t('clickFullscreenToWatch')}</span>
+                  <span className="text-xs font-bold">可使用全屏或沉浸模式</span>
                 </div>
               </div>
             )}
             
-            {/* Rotate Hint */}
-            {isFullscreen && (
-              <div 
-                className="md:hidden fixed inset-0 flex items-center justify-center bg-black/90 z-[200]" 
-                id="rotate-hint"
-                style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}
-              >
-                <div className="text-center text-white p-6">
-                  <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-white/10 flex items-center justify-center">
-                    <RotateCcw className="w-10 h-10 animate-spin" style={{ animationDuration: '3s' }} />
-                  </div>
-                  <p className="text-xl font-bold mb-2">{t('pleaseRotatePhone')}</p>
-                  <p className="text-sm text-white/70 mb-6">{t('landscapeModeIsBetter')}</p>
-                  <button
-                    onClick={toggleFullscreen}
-                    className="px-4 py-2 bg-white/20 hover:bg-white/30 text-white rounded-lg text-sm transition-colors"
-                  >
-                    {t('exitFullscreen')}
-                  </button>
-                </div>
-              </div>
-            )}
-
             {/* Tap to show controls hint when controls are hidden in fullscreen - placed in bottom left corner */}
-            {isFullscreen && !showControls && (
+            {isExpandedPreview && !showControls && (
               <button 
                 className="absolute bottom-4 left-4 z-[101] bg-black/40 backdrop-blur-sm p-3 rounded-full text-white hover:bg-black/60 transition-all animate-in fade-in duration-200 shadow-lg"
                 onClick={() => setShowControls(true)}
@@ -1137,8 +1076,8 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
           </div>
 
           {/* Preview Controls */}
-          {(showControls || !isFullscreen) && (
-            <div className={`h-14 bg-slate-800 border-t border-slate-700 flex items-center justify-between px-4 md:px-6 shrink-0 z-10 ${isFullscreen ? 'fixed bottom-0 left-0 right-0 z-[102]' : ''}`}>
+          {(showControls || !isExpandedPreview) && (
+            <div className={`h-14 bg-slate-800 border-t border-slate-700 flex items-center justify-between px-4 md:px-6 shrink-0 z-10 ${isExpandedPreview ? 'fixed bottom-0 left-0 right-0 z-[102]' : ''}`}>
               <div className="flex items-center gap-3">
                 <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
                 <h3 className="text-white font-medium text-sm truncate max-w-[150px] md:max-w-[200px]">{demo.title}</h3>
@@ -1146,7 +1085,7 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
               </div>
               <div className="flex items-center gap-1">
                 {/* Toggle Controls Button (only in fullscreen) */}
-                {isFullscreen && (
+                {isExpandedPreview && (
                   <button
                     onClick={() => setShowControls(!showControls)}
                     className="p-2 text-slate-400 hover:text-white transition-colors hover:bg-slate-700 rounded-lg mr-2"
@@ -1183,14 +1122,19 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
                 </button>
                 {/* Refresh */}
                 <button
-                  onClick={() => {
-                    setIframeKey(k => k + 1);
-                    setZoomLevel(1);
-                  }}
+                  onClick={reloadPreview}
                   className="p-2 text-slate-400 hover:text-white transition-colors hover:bg-slate-700 rounded-lg"
                   title={t('refresh')}
                 >
                   <RefreshCw className="w-4 h-4" />
+                </button>
+                {/* Immersive mode avoids fragile browser fullscreen behavior on mobile. */}
+                <button
+                  onClick={() => setIsImmersive(value => !value)}
+                  className="p-2 text-slate-400 hover:text-white transition-colors hover:bg-slate-700 rounded-lg ml-1"
+                  title={isImmersive ? '退出沉浸模式' : '沉浸模式'}
+                >
+                  {isImmersive ? <Minimize2 className="w-4 h-4" /> : <Monitor className="w-4 h-4" />}
                 </button>
                 {/* Mobile Fullscreen Button */}
                 <button
@@ -1214,8 +1158,8 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
           )}
         </div>
 
-        {/* Right Side: Sidebar - Only show when NOT fullscreen */}
-        {!isFullscreen && (
+        {/* Right Side: Sidebar - Only show when the preview is not expanded */}
+        {!isExpandedPreview && (
           <div 
             ref={sidebarRef}
             style={isDesktop ? { width: `${sidebarWidth}px` } : {}}
@@ -1795,7 +1739,7 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, t, onOpe
                   <label className="block text-sm font-semibold text-slate-700 mb-2">{t('uploadNewFile')}</label>
                   <input
                     type="file"
-                    accept=".zip,.html,.htm"
+                    accept={isMultiFile ? '.zip' : '.html,.htm'}
                     onChange={(e) => setEditZipFile(e.target.files?.[0] || null)}
                     className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
                   />

@@ -30,8 +30,16 @@ dist-ssr
 
 # Database
 backend/database.db
+backend/database.db.*
+backend/database.sqlite
+backend/database.sqlite.*
 backend/data/*.db
 backend/data/*.db-journal
+backend/data/*.db-shm
+backend/data/*.db-wal
+backend/scripts/database.db
+backend/scripts/database.db.*
+backend/scripts/data/
 
 # Project directories - user data (keep in production)
 backend/projects/

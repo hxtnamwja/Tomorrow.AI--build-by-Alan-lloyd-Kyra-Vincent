@@ -21,7 +21,7 @@ const createTables = async () => {
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       username TEXT UNIQUE NOT NULL,
-      role TEXT NOT NULL CHECK(role IN ('user', 'general_admin')),
+      role TEXT NOT NULL CHECK(role IN ('user', 'general_admin', 'site_sub_admin')),
       created_at INTEGER NOT NULL,
       is_banned INTEGER DEFAULT 0,
       ban_reason TEXT,

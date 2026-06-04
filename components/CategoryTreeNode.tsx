@@ -68,13 +68,13 @@ export const CategoryTreeNode = ({
   };
 
   return (
-    <div className="pl-3 select-none">
+    <div className="pl-3 select-none min-w-max">
       <div 
         className={`flex items-center justify-between py-1.5 pr-2 rounded-lg transition-colors group relative ${isActive ? 'bg-indigo-50' : 'hover:bg-slate-100'}`}
       >
         {/* Navigation Area - Left Side */}
         <div 
-          className="flex-1 flex items-center cursor-pointer overflow-hidden min-w-0"
+          className="flex items-center cursor-pointer min-w-0"
           onClick={(e) => {
             if (isEditing) return;
             e.stopPropagation();
@@ -107,7 +107,7 @@ export const CategoryTreeNode = ({
               className="flex-1 text-sm font-medium bg-white border border-indigo-300 rounded px-1 outline-none focus:ring-1 focus:ring-indigo-500"
             />
           ) : (
-            <span className={`text-sm font-medium truncate ${isActive ? 'text-indigo-700' : 'text-slate-600'}`}>{category.name}</span>
+            <span className={`text-sm font-medium whitespace-normal break-words leading-5 max-w-48 ${isActive ? 'text-indigo-700' : 'text-slate-600'}`}>{category.name}</span>
           )}
         </div>
 

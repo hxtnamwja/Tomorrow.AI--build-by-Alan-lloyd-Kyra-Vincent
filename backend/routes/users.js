@@ -131,8 +131,11 @@ router.get('/community/:communityId', async (req, res) => {
       return res.status(404).json({ code: 404, message: 'Community not found', data: null });
     }
 
-    // Check if user is general admin or community creator
-    if (currentUser.role !== 'general_admin' && community.creator_id !== currentUser.id) {
+    const communityAdmin = await getRow(
+      "SELECT id FROM community_members WHERE community_id = ? AND user_id = ? AND status = 'member' AND role = 'admin'",
+      [communityId, currentUser.id]
+    );
+    if (currentUser.role !== 'general_admin' && community.creator_id !== currentUser.id && !communityAdmin) {
       return res.status(403).json({ code: 403, message: 'Forbidden', data: null });
     }
 
@@ -231,7 +234,7 @@ router.put('/:id/unban', async (req, res) => {
     res.status(500).json({ code: 500, message: 'Server error', data: null });
   }
 });
-// PATCH /users/:id/role - Toggle general admin role (admin only, but only original admin can modify other admins)
+// PATCH /users/:id/role - Original admin can grant/revoke site sub-admin only.
 router.patch('/:id/role', async (req, res) => {
   const currentUser = await getUserFromAuth(req);
   if (!currentUser || !['general_admin', 'site_sub_admin'].includes(currentUser.role)) {
@@ -250,8 +253,8 @@ router.patch('/:id/role', async (req, res) => {
     return res.status(400).json({ code: 400, message: 'Cannot demote yourself', data: null });
   }
 
-  if (!['user', 'general_admin', 'site_sub_admin'].includes(role)) {
-    return res.status(400).json({ code: 400, message: 'Invalid role', data: null });
+  if (!['user', 'site_sub_admin'].includes(role)) {
+    return res.status(400).json({ code: 400, message: '普通用户最多只能设置为分管理员', data: null });
   }
 
   try {
@@ -259,9 +262,12 @@ router.patch('/:id/role', async (req, res) => {
     if (!user) {
       return res.status(404).json({ code: 404, message: 'User not found', data: null });
     }
+    if (user.role === 'general_admin') {
+      return res.status(403).json({ code: 403, message: '不能修改总管理员角色', data: null });
+    }
 
     await runQuery('UPDATE users SET role = ? WHERE id = ?', [role, id]);
-    const roleName = role === 'general_admin' ? '总管理员' : role === 'site_sub_admin' ? '分管理员' : '普通用户';
+    const roleName = role === 'site_sub_admin' ? '分管理员' : '普通用户';
     res.json({ code: 200, message: `用户权限已更新为 ${roleName}`, data: null });
   } catch (error) {
     console.error('Update user role error:', error);

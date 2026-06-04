@@ -18,7 +18,7 @@ import { Demo, Language, UserRole, Subject, Category, Layer, Bounty, Community, 
 import { DICTIONARY, getTranslation, calculateLevel, hasExclusiveAvatarBorder, canCreateCommunityWithoutApproval, isLevelAtLeast } from './constants';
 import { StorageService } from './services/storageService';
 import { AiService } from './services/aiService';
-import { BountiesAPI, PublicationsAPI, FeedbackAPI, CommunitiesAPI, AuthAPI } from './services/apiService';
+import { BountiesAPI, PublicationsAPI, FeedbackAPI, CommunitiesAPI, AuthAPI, DemosAPI, clearCache } from './services/apiService';
 
 
 
@@ -70,8 +70,24 @@ const SubjectIcon = ({ subject }: { subject: string }) => {
 };
 
 // --- Main App ---
+type AppView = 'explore' | 'upload' | 'admin' | 'bounties' | 'profile' | 'community_hall' | 'points_shop' | 'team' | 'announcements';
+const APP_VIEWS = new Set<AppView>(['explore', 'upload', 'admin', 'bounties', 'profile', 'community_hall', 'points_shop', 'team', 'announcements']);
+
+const readUrlState = () => {
+  const params = new URLSearchParams(window.location.search);
+  const requestedView = params.get('view') as AppView | null;
+  return {
+    view: requestedView && APP_VIEWS.has(requestedView) ? requestedView : 'explore' as AppView,
+    layer: params.get('layer') === 'community' ? 'community' as Layer : 'general' as Layer,
+    communityId: params.get('community'),
+    categoryId: params.get('category') || 'All',
+    profileId: params.get('profile'),
+    demoId: params.get('demo')
+  };
+};
 
 export default function App() {
+  const initialUrlState = useMemo(readUrlState, []);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [language, setLanguage] = useState<Language>('cn');
   const [role, setRole] = useState<UserRole>('user');
@@ -85,9 +101,9 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   // Views
-  const [view, setView] = useState<'explore' | 'upload' | 'admin' | 'bounties' | 'profile' | 'community_hall' | 'points_shop' | 'team' | 'announcements'>('explore');
-  const [layer, setLayer] = useState<Layer>('general');
-  const [activeCommunityId, setActiveCommunityId] = useState<string | null>(null);
+  const [view, setView] = useState<AppView>(initialUrlState.view);
+  const [layer, setLayer] = useState<Layer>(initialUrlState.layer);
+  const [activeCommunityId, setActiveCommunityId] = useState<string | null>(initialUrlState.communityId);
   
   // Data
   const [demos, setDemos] = useState<Demo[]>([]);
@@ -101,8 +117,11 @@ export default function App() {
     return saved ? JSON.parse(saved) : [];
   });
 
-  const [activeCategory, setActiveCategory] = useState<string>('All');
+  const [activeCategory, setActiveCategory] = useState<string>(initialUrlState.categoryId);
   const [selectedDemo, setSelectedDemo] = useState<Demo | null>(null);
+  const [pendingUrlDemoId, setPendingUrlDemoId] = useState<string | null>(initialUrlState.demoId);
+  const [openingDemoId, setOpeningDemoId] = useState<string | null>(null);
+  const [demosLoading, setDemosLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'date' | 'likes'>('date');
   
@@ -124,12 +143,13 @@ export default function App() {
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
 
   // View other user's profile
-  const [viewingUserId, setViewingUserId] = useState<string | null>(null);
+  const [viewingUserId, setViewingUserId] = useState<string | null>(initialUrlState.profileId);
   // Remember if we were viewing a profile when opening a demo
   const [wasViewingProfile, setWasViewingProfile] = useState<boolean>(false);
 
   // Context for uploading to a bounty
   const [bountyContext, setBountyContext] = useState<Bounty | null>(null);
+  const [quickUploadContext, setQuickUploadContext] = useState<{ layer: Layer; communityId?: string; categoryId?: string } | null>(null);
 
   // Bounty detail modal state
   const [selectedBounty, setSelectedBounty] = useState<(Bounty & { solutions?: any[] }) | null>(null);
@@ -141,6 +161,46 @@ export default function App() {
   useEffect(() => {
     setIsChatOpen(false);
   }, [view, layer, activeCommunityId]);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (view !== 'explore') params.set('view', view);
+    if (layer === 'community') params.set('layer', layer);
+    if (activeCommunityId) params.set('community', activeCommunityId);
+    if (activeCategory !== 'All') params.set('category', activeCategory);
+    if (viewingUserId) params.set('profile', viewingUserId);
+    if (pendingUrlDemoId || selectedDemo?.id) params.set('demo', pendingUrlDemoId || selectedDemo!.id);
+    const query = params.toString();
+    window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
+  }, [view, layer, activeCommunityId, activeCategory, viewingUserId, selectedDemo, pendingUrlDemoId]);
+
+  useEffect(() => {
+    const restoreUrlState = () => {
+      const state = readUrlState();
+      setView(state.view);
+      setLayer(state.layer);
+      setActiveCommunityId(state.communityId);
+      setActiveCategory(state.categoryId);
+      setViewingUserId(state.profileId);
+      setPendingUrlDemoId(state.demoId);
+      if (!state.demoId) setSelectedDemo(null);
+    };
+    window.addEventListener('popstate', restoreUrlState);
+    return () => window.removeEventListener('popstate', restoreUrlState);
+  }, []);
+
+  useEffect(() => {
+    const demoId = pendingUrlDemoId;
+    if (!demoId || selectedDemo?.id === demoId || !isLoggedIn) return;
+    setOpeningDemoId(demoId);
+    DemosAPI.getById(demoId)
+      .then(demo => {
+        setSelectedDemo(demo);
+        setPendingUrlDemoId(null);
+      })
+      .catch(error => console.error('Failed to restore demo from URL:', error))
+      .finally(() => setOpeningDemoId(null));
+  }, [pendingUrlDemoId, isLoggedIn, selectedDemo?.id]);
 
   const [chatMessages, setChatMessages] = useState<{role: 'user'|'model', text: string}[]>([]);
   const [chatInput, setChatInput] = useState('');
@@ -157,6 +217,7 @@ export default function App() {
 
   // Mobile sidebar toggle state
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isCategoryPanelExpanded, setIsCategoryPanelExpanded] = useState(false);
   
   // Publication feature states
   const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
@@ -200,9 +261,9 @@ export default function App() {
         setCurrentUserId(storedUser.id);
         setIsBanned(storedUser.isBanned || 0);
         setBanReason(storedUser.banReason);
-        if (storedUser.role === 'general_admin') {
+        if (!window.location.search && (storedUser.role === 'general_admin' || storedUser.role === 'site_sub_admin')) {
            setView('admin');
-        } else if (storedUser.isBanned) {
+        } else if (!window.location.search && storedUser.isBanned) {
           // If user is banned, go to profile page
           setView('profile');
         }
@@ -271,6 +332,7 @@ export default function App() {
   const refreshAllData = async (forceRefresh: boolean = false) => {
     const now = Date.now();
     const cacheExpiry = 5 * 60 * 1000; // 5分钟缓存
+    if (forceRefresh) clearCache();
     
     // 检查缓存是否有效
     const isCacheValid = !forceRefresh && (now - dataCache.lastUpdated) < cacheExpiry;
@@ -293,6 +355,7 @@ export default function App() {
     }
 
     // Load demos based on sort preference and current layer
+    setDemosLoading(true);
     let demosData: Demo[];
     const currentCachedDemos = dataCache.demos || [];
     
@@ -331,7 +394,7 @@ export default function App() {
       if (isCacheValid && dataCache.announcements) {
         announcementsData = dataCache.announcements;
       } else {
-        if (isLoggedIn && (role === 'general_admin' || userCreatedCommunities.length > 0)) {
+        if (isLoggedIn && (role === 'general_admin' || role === 'site_sub_admin' || userCreatedCommunities.length > 0)) {
           announcementsData = await StorageService.getAllAnnouncementsAdmin();
         } else {
           announcementsData = await StorageService.getAnnouncements({
@@ -367,6 +430,7 @@ export default function App() {
     setCommunities(communitiesDataArray);
     setAllUsers(usersData || []);
     setAnnouncements(announcementsData || []);
+    setDemosLoading(false);
     
     // 更新缓存
     setDataCache({
@@ -380,10 +444,12 @@ export default function App() {
     });
     
     // Check if user is a community admin directly using communitiesData
-    const isCommunityAdmin = communitiesDataArray.some(c => c.creatorId === currentUserId);
+    const isCommunityAdmin = communitiesDataArray.some(c =>
+      c.creatorId === currentUserId || (c.adminMembers || []).includes(currentUserId)
+    );
     
     // Load pending publications if user is admin
-    if (isLoggedIn && (role === 'general_admin' || isCommunityAdmin)) {
+    if (isLoggedIn && (role === 'general_admin' || role === 'site_sub_admin' || isCommunityAdmin)) {
       try {
         const pubs = await PublicationsAPI.getPending();
         setPublications(pubs);
@@ -398,7 +464,7 @@ export default function App() {
         const myFb = await FeedbackAPI.getMy();
         setMyFeedback(myFb);
         
-        if (role === 'general_admin' || isCommunityAdmin) {
+        if (role === 'general_admin' || role === 'site_sub_admin' || isCommunityAdmin) {
           const pendingFb = await FeedbackAPI.getPending();
           setPendingFeedback(pendingFb);
         }
@@ -503,7 +569,12 @@ export default function App() {
 
 
 
+  const hasInitializedCategoryContext = useRef(false);
   useEffect(() => {
+    if (!hasInitializedCategoryContext.current) {
+      hasInitializedCategoryContext.current = true;
+      return;
+    }
     setActiveCategory('All');
   }, [layer, activeCommunityId]);
 
@@ -547,7 +618,7 @@ export default function App() {
       setBanReason(result.user.banReason);
       
       // Redirect based on role and ban status
-      if (result.user.role === 'general_admin') {
+      if (result.user.role === 'general_admin' || result.user.role === 'site_sub_admin') {
         setView('admin');
         setLayer('general');
       } else if (result.user.isBanned) {
@@ -575,7 +646,7 @@ export default function App() {
     setCurrentUserId('');
   };
 
-  const handleOpenDemoWithPermission = (demo: Demo, fromProfile: boolean = false) => {
+  const handleOpenDemoWithPermission = async (demo: Demo, fromProfile: boolean = false) => {
     console.log('=== Debug handleOpenDemoWithPermission ===');
     console.log('demo:', demo);
     console.log('demo.layer:', demo.layer);
@@ -594,9 +665,20 @@ export default function App() {
         return;
       }
     }
-    setSelectedDemo(demo);
-    if (fromProfile) {
-      setWasViewingProfile(true);
+    setOpeningDemoId(demo.id);
+    try {
+      const fullDemo = demo.code || demo.projectType === 'multi-file'
+        ? demo
+        : await DemosAPI.getById(demo.id);
+      setSelectedDemo(fullDemo);
+      if (fromProfile) {
+        setWasViewingProfile(true);
+      }
+    } catch (error) {
+      console.error('Failed to load demo details:', error);
+      alert('素材加载失败，请稍后重试');
+    } finally {
+      setOpeningDemoId(null);
     }
   };
 
@@ -625,9 +707,9 @@ export default function App() {
   }, [communities, activeCommunityId]);
 
   const isCurrentCommunityAdmin = useMemo(() => {
-      if(role === 'general_admin') return true; // Super Admin Access
+      if(role === 'general_admin' || role === 'site_sub_admin') return true;
       if(!activeCommunity) return false;
-      return activeCommunity.creatorId === currentUserId;
+      return activeCommunity.creatorId === currentUserId || (activeCommunity.adminMembers || []).includes(currentUserId);
   }, [role, activeCommunity, currentUserId]);
 
   // Filter communities for search and type
@@ -728,7 +810,7 @@ export default function App() {
       // Skip demos that are part of a bounty (they should be reviewed by bounty creator first)
       if (d.bountyId) return false;
       
-      if (role === 'general_admin') return true; // General Admin sees ALL pending
+      if (role === 'general_admin' || role === 'site_sub_admin') return true;
       
       // Community Admin Review
       if (d.layer === 'community' && d.communityId === activeCommunityId && isCurrentCommunityAdmin) return true;
@@ -766,7 +848,19 @@ export default function App() {
     await refreshAllData(true);
     setView('explore');
     setBountyContext(null);
+    setQuickUploadContext(null);
     alert(t('uploadSuccessMsg'));
+  };
+
+  const openQuickUpload = () => {
+    if (activeCategory === 'All') return;
+    setBountyContext(null);
+    setQuickUploadContext({
+      layer,
+      communityId: layer === 'community' ? activeCommunityId || undefined : undefined,
+      categoryId: activeCategory
+    });
+    setView('upload');
   };
 
   const handleCategorySelect = (categoryId: string) => {
@@ -995,7 +1089,7 @@ export default function App() {
     
     return (
       <>
-        <div className="px-4 mb-6 shrink-0">
+        <div className={`px-4 shrink-0 overflow-hidden transition-all duration-300 ${layer === 'community' && isCategoryPanelExpanded ? 'max-h-28 mb-2' : 'max-h-[420px] mb-6'}`}>
           <div className="bg-slate-100/80 p-1 rounded-xl flex mb-4 border border-slate-200">
              <button
                onClick={() => { setLayer('general'); setActiveCommunityId(null); setView('explore'); setIsMobileSidebarOpen(false); }}
@@ -1088,6 +1182,15 @@ export default function App() {
         {layer === 'community' ? (
           /* 社区层 - 可滚动目录 */
           <div className="flex-1 flex flex-col min-h-0 px-4 border-t border-slate-100/80 pt-6">
+            <button
+              type="button"
+              onClick={() => setIsCategoryPanelExpanded(value => !value)}
+              className="-mt-4 mb-3 h-8 px-3 shrink-0 flex items-center justify-center gap-2 text-xs font-medium text-slate-500 hover:text-indigo-600 transition-colors"
+              title={isCategoryPanelExpanded ? '收起分类区域' : '扩大分类区域'}
+            >
+              <ChevronDown className={`w-4 h-4 transition-transform ${isCategoryPanelExpanded ? '' : 'rotate-180'}`} />
+              <span>{isCategoryPanelExpanded ? '收起分类区域' : '扩大分类区域'}</span>
+            </button>
             {/* 固定的学科分类标题 - 不随滚动 */}
             <div className="flex items-center justify-between mb-4 px-2 pb-2 shrink-0">
                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">{t('subjects')}</h3>
@@ -1103,7 +1206,7 @@ export default function App() {
             </div>
             
             {/* 可滚动的目录内容 */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar -mx-4 px-4">
+            <div className="flex-1 overflow-auto custom-scrollbar -mx-4 px-4">
               <nav className="space-y-1 pb-10">
                 <button 
                   onClick={() => handleCategorySelect('All')}
@@ -1389,13 +1492,13 @@ export default function App() {
           </button>
 
           <button
-             onClick={() => { setBountyContext(null); setView('upload'); }}
+             onClick={() => { setBountyContext(null); setQuickUploadContext(null); setView('upload'); }}
              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${view === 'upload' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
             {t('upload')}
           </button>
 
-          {(role === 'general_admin' || (layer === 'community' && isCurrentCommunityAdmin)) && (
+          {(role === 'general_admin' || role === 'site_sub_admin' || (layer === 'community' && isCurrentCommunityAdmin)) && (
             <button
               onClick={() => setView('admin')}
               className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all relative ${view === 'admin' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
@@ -1497,12 +1600,14 @@ export default function App() {
             className={`flex items-center gap-2 px-1.5 py-1.5 md:px-3 md:py-1.5 rounded-full text-xs font-bold transition-all border select-none shrink-0 cursor-pointer shadow-sm
               ${role === 'user' ? 'bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-700 border-emerald-100 hover:shadow-md' : ''}
               ${role === 'general_admin' ? 'bg-gradient-to-r from-purple-50 to-indigo-50 text-purple-700 border-purple-100 hover:shadow-md' : ''}
+              ${role === 'site_sub_admin' ? 'bg-gradient-to-r from-amber-50 to-yellow-50 text-amber-700 border-amber-100 hover:shadow-md' : ''}
             `}
           >
             {role === 'user' && <UserCircle className="w-5 h-5 md:w-4 md:h-4" />}
             {role === 'general_admin' && <ShieldCheck className="w-5 h-5 md:w-4 md:h-4" />}
+            {role === 'site_sub_admin' && <ShieldCheck className="w-5 h-5 md:w-4 md:h-4" />}
             <span className="hidden md:inline">
-              {role === 'user' ? t('roleUser') : t('roleGeneralAdmin')}
+              {role === 'user' ? t('roleUser') : role === 'site_sub_admin' ? '分管理员' : t('roleGeneralAdmin')}
             </span>
             <ChevronDown className="w-3 h-3 ml-1 opacity-50" />
           </button>
@@ -1511,10 +1616,10 @@ export default function App() {
             <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-xl border border-slate-100 py-2 z-50 animate-in fade-in slide-in-from-top-2 overflow-hidden">
                <div className="px-4 py-2 border-b border-slate-50 mb-1">
                   <p className="text-xs text-slate-400 uppercase tracking-wider font-bold">{t('accessLevel')}</p>
-                  <p className="text-sm font-bold text-slate-700 truncate">{role === 'user' ? t('roleUser') : t('roleGeneralAdmin')}</p>
+                  <p className="text-sm font-bold text-slate-700 truncate">{role === 'user' ? t('roleUser') : role === 'site_sub_admin' ? '分管理员' : t('roleGeneralAdmin')}</p>
                </div>
                
-               {role === 'general_admin' && (
+               {(role === 'general_admin' || role === 'site_sub_admin') && (
                  <button 
                     onClick={() => {
                       setView('admin');
@@ -1567,6 +1672,24 @@ export default function App() {
 
     return (
       <div className="space-y-6 pb-20">
+        {activeCategory !== 'All' && (
+          <div className="flex items-center justify-between gap-4 px-4 py-3 bg-indigo-50 border border-indigo-100 rounded-xl">
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-indigo-500">当前目录</p>
+              <p className="text-sm font-bold text-indigo-900 truncate">
+                {layer === 'community' ? `${activeCommunity?.name || '社区'} / ` : '综合知识中心 / '}
+                {categories.find(category => category.id === activeCategory)?.name || activeCategory}
+              </p>
+            </div>
+            <button
+              onClick={openQuickUpload}
+              className="shrink-0 inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg transition-colors shadow-sm"
+            >
+              <Plus className="w-4 h-4" />
+              快捷上传
+            </button>
+          </div>
+        )}
         {/* Announcements Section */}
         {activeAnnouncements.length > 0 && (
           <div className="space-y-3">
@@ -1591,7 +1714,14 @@ export default function App() {
     );
   };
 
-  const renderDemosGrid = () => (
+  const renderDemosGrid = () => demosLoading ? (
+    <div className="min-h-[50vh] flex items-center justify-center">
+      <div className="text-center">
+        <div className="w-12 h-12 mx-auto mb-4 rounded-full border-4 border-indigo-100 border-t-indigo-600 animate-spin" />
+        <p className="text-sm font-medium text-slate-500">正在加载社区素材...</p>
+      </div>
+    </div>
+  ) : (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8 pb-20">
       {filteredDemos.map(demo => {
         const isGeneralAdmin = role === 'general_admin';
@@ -1614,7 +1744,13 @@ export default function App() {
 
           <div className="h-44 bg-slate-50 relative overflow-hidden pointer-events-none">
             {demo.thumbnailUrl ? (
-              <img src={demo.thumbnailUrl} alt={demo.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out" />
+              <img
+                src={demo.thumbnailUrl}
+                alt={demo.title}
+                loading="lazy"
+                decoding="async"
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out"
+              />
             ) : (
               <div className="w-full h-full flex items-center justify-center bg-slate-50 relative">
                 <div className="absolute inset-0 bg-grid-slate opacity-[0.4]"></div>
@@ -2109,7 +2245,7 @@ export default function App() {
 
   const renderAdminDashboard = () => {
     // Only General Admin or Community Admin can see this
-    if (role !== 'general_admin' && !isCurrentCommunityAdmin) {
+    if (role !== 'general_admin' && role !== 'site_sub_admin' && !isCurrentCommunityAdmin) {
         return (
             <div className="flex flex-col items-center justify-center h-[50vh] text-slate-400">
                 <ShieldCheck className="w-16 h-16 mb-4 opacity-20" />
@@ -2127,7 +2263,7 @@ export default function App() {
                  <div className="p-2 bg-purple-100 rounded-xl text-purple-600"><LayoutDashboard className="w-8 h-8" /></div>
                  <div>
                      <h2 className="text-3xl font-bold text-slate-800">{t('adminDashboard')}</h2>
-                     <p className="text-slate-500 mt-1">{role === 'general_admin' ? t('generalAdminView') : activeCommunity?.name}</p>
+                     <p className="text-slate-500 mt-1">{role === 'general_admin' ? t('generalAdminView') : role === 'site_sub_admin' ? '站点分管理员只读视图' : activeCommunity?.name}</p>
                  </div>
              </div>
              <button
@@ -2145,7 +2281,7 @@ export default function App() {
              {role === 'general_admin' && (
                  <StatsCard label={t('pendingCommunities')} value={pendingComms.length} color="bg-blue-500 text-blue-500" />
              )}
-             <StatsCard label={t('statsUsers')} value={role === 'general_admin' ? allUsers.length : (activeCommunity?.members.length || 0)} color="bg-emerald-500 text-emerald-500" />
+             <StatsCard label={t('statsUsers')} value={role === 'general_admin' || role === 'site_sub_admin' ? allUsers.length : (activeCommunity?.members.length || 0)} color="bg-emerald-500 text-emerald-500" />
          </div>
 
          {/* Pending Communities (General Admin Only) */}
@@ -2259,7 +2395,7 @@ export default function App() {
                             
                             <div className="flex items-center gap-3 shrink-0">
                                 <button 
-                                    onClick={() => setSelectedDemo(d)}
+                                    onClick={() => handleOpenDemoWithPermission(d)}
                                     className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
                                     title="Preview Code"
                                 >
@@ -2323,7 +2459,7 @@ export default function App() {
                                 
                                 <div className="flex items-center gap-3 shrink-0">
                                     <button 
-                                        onClick={() => demo && setSelectedDemo(demo)}
+                                        onClick={() => demo && handleOpenDemoWithPermission(demo)}
                                         className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
                                         title="预览作品"
                                     >
@@ -2585,8 +2721,12 @@ export default function App() {
                       currentUserId={currentUserId}
                       role={role}
                       onSubmit={handleUpload} 
-                      onCancel={() => setView('explore')}
+                      onCancel={() => {
+                        setQuickUploadContext(null);
+                        setView('explore');
+                      }}
                       bountyContext={bountyContext}
+                      initialContext={quickUploadContext}
                     />
                   )}
                   {view === 'admin' && renderAdminDashboard()}
@@ -2803,6 +2943,7 @@ export default function App() {
               }
               setWasViewingProfile(false);
             }}
+            onDemoUpdated={() => refreshAllData(true)}
             t={t}
             onOpenDemo={(demoId) => {
               console.log('DemoPlayer onOpenDemo:', demoId);
@@ -2851,6 +2992,15 @@ export default function App() {
           />
         )}
       </AnimatePresence>
+
+      {openingDemoId && !selectedDemo && (
+        <div className="fixed inset-0 z-[55] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center">
+          <div className="text-center text-white">
+            <div className="w-14 h-14 mx-auto mb-5 rounded-full border-4 border-white/20 border-t-indigo-400 animate-spin" />
+            <p className="font-medium">正在准备素材...</p>
+          </div>
+        </div>
+      )}
       
       {/* Bounty Modals */}
       <CreateBountyModal 

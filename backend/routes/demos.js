@@ -13,6 +13,7 @@ const __dirname = path.dirname(__filename);
 const PROJECTS_DIR = process.env.PROJECTS_PATH 
   ? path.resolve(process.env.PROJECTS_PATH) 
   : path.resolve(__dirname, '..', 'projects');
+const UPLOAD_TEMP_DIR = path.resolve(__dirname, '..', 'uploads', 'temp');
 
 console.log('[Demos] Projects directory:', PROJECTS_DIR);
 
@@ -25,6 +26,7 @@ if (!fs.existsSync(PROJECTS_DIR)) {
     console.error('[Demos] Failed to create projects directory:', err);
   }
 }
+fs.mkdirSync(UPLOAD_TEMP_DIR, { recursive: true });
 
 const router = Router();
 
@@ -74,6 +76,14 @@ const mapDemoRow = (row) => {
   };
 };
 
+const mapDemoListRow = (row) => {
+  const demo = mapDemoRow(row);
+  if (demo?.thumbnailUrl?.startsWith('data:image/')) {
+    demo.thumbnailUrl = `/api/v1/demos/${demo.id}/thumbnail`;
+  }
+  return demo;
+};
+
 const isCommunityMember = async (communityId, userId) => {
   const member = await getRow(
     'SELECT id FROM community_members WHERE community_id = ? AND user_id = ? AND status = ?',
@@ -109,11 +119,18 @@ const getCurrentUser = async (req) => {
 
 // GET /demos
 router.get('/', async (req, res) => {
-  const { layer, communityId, categoryId, search, status, authorId, sortBy, archived } = req.query;
+  const { layer, communityId, categoryId, search, status, authorId, sortBy, archived, fields } = req.query;
 
-  // Always include like count in the query
+  // List views only need metadata. Avoid transferring complete source code and
+  // configuration for every demo; details are fetched on demand via GET /:id.
+  const demoFields = fields === 'full'
+    ? 'd.*'
+    : `d.id, d.title, d.description, d.category_id, d.layer, d.community_id,
+       d.author, d.creator_id, d.thumbnail_url, d.status, d.created_at, d.updated_at,
+       d.rejection_reason, d.bounty_id, d.project_type, d.entry_file, d.project_size,
+       d.archived, d.archived_at, d.tags`;
   let query = `
-    SELECT d.*, COUNT(l.id) as like_count 
+    SELECT ${demoFields}, COUNT(l.id) as like_count
     FROM demos d 
     LEFT JOIN demo_likes l ON d.id = l.demo_id 
     WHERE 1=1
@@ -172,7 +189,8 @@ router.get('/', async (req, res) => {
 
   try {
     const demos = await getAllRows(query, params);
-    res.json({ code: 200, message: 'Success', data: demos.map(mapDemoRow) });
+    res.setHeader('Cache-Control', 'private, max-age=30');
+    res.json({ code: 200, message: 'Success', data: demos.map(mapDemoListRow) });
   } catch (error) {
     console.error('Error fetching demos:', error);
     res.status(500).json({ code: 500, message: 'Server error', data: null });
@@ -243,6 +261,26 @@ router.get('/liked/by/:userId', async (req, res) => {
   }
 });
 
+// GET /demos/:id/thumbnail - Serve stored data-URL covers as cacheable image resources.
+router.get('/:id/thumbnail', async (req, res) => {
+  try {
+    const demo = await getRow('SELECT thumbnail_url FROM demos WHERE id = ?', [req.params.id]);
+    if (!demo?.thumbnail_url) {
+      return res.status(404).end();
+    }
+    const match = demo.thumbnail_url.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s);
+    if (!match) {
+      return res.redirect(demo.thumbnail_url);
+    }
+    res.setHeader('Content-Type', match[1]);
+    res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+    res.send(Buffer.from(match[2], 'base64'));
+  } catch (error) {
+    console.error('Error serving demo thumbnail:', error);
+    res.status(500).end();
+  }
+});
+
 // PATCH /demos/:id/status
 router.patch('/:id/status', async (req, res) => {
   const user = await getCurrentUser(req);
@@ -262,7 +300,7 @@ router.patch('/:id/status', async (req, res) => {
 
     // Permission check
     let hasPermission = false;
-    if (user.role === 'general_admin') {
+    if (user.role === 'general_admin' || user.role === 'site_sub_admin') {
       hasPermission = true;
     } else if (oldDemo.layer === 'community' && oldDemo.community_id) {
       hasPermission = await isCommunityAdmin(oldDemo.community_id, user.id);
@@ -632,7 +670,7 @@ router.delete('/:id/like', async (req, res) => {
 
 // 配置multer用于文件上传
 const upload = multer({
-  dest: 'uploads/temp/',
+  dest: UPLOAD_TEMP_DIR,
   limits: { 
     fileSize: 100 * 1024 * 1024, // 100MB per file
     files: 2 // allow up to 2 files
@@ -640,10 +678,13 @@ const upload = multer({
   fileFilter: (req, file, cb) => {
     if (file.mimetype === 'application/zip' || 
         file.mimetype === 'application/x-zip-compressed' ||
-        file.originalname.endsWith('.zip')) {
+        file.originalname.toLowerCase().endsWith('.zip') ||
+        file.mimetype === 'text/html' ||
+        file.originalname.toLowerCase().endsWith('.html') ||
+        file.originalname.toLowerCase().endsWith('.htm')) {
       cb(null, true);
     } else {
-      cb(new Error('只允许上传ZIP文件'));
+      cb(new Error('只允许上传 ZIP 或 HTML 文件'));
     }
   }
 });
@@ -670,6 +711,9 @@ router.post('/upload-zip', uploadMultiple, async (req, res) => {
   if (!req.files || !req.files.zipFile) {
     console.error('[Upload-ZIP] No file uploaded');
     return res.status(400).json({ code: 400, message: 'No file uploaded', data: null });
+  }
+  if (!req.files.zipFile[0].originalname.toLowerCase().endsWith('.zip')) {
+    return res.status(400).json({ code: 400, message: '新建多文件项目只允许上传 ZIP 文件', data: null });
   }
   
   console.log('[Upload-ZIP] File received:', req.files.zipFile[0].originalname, 'size:', req.files.zipFile[0].size);
@@ -831,7 +875,7 @@ router.post('/upload-zip', uploadMultiple, async (req, res) => {
 
 // POST /demos/:id/update - 更新demo（需要审批）
 router.post('/:id/update', uploadMultiple, async (req, res) => {
-  const { title, description, config } = req.body;
+  const { title, description, config, tags } = req.body;
   const user = await getCurrentUser(req);
   
   if (!user) {
@@ -855,6 +899,35 @@ router.post('/:id/update', uploadMultiple, async (req, res) => {
     const originalDir = path.join(PROJECTS_DIR, demoId, '_original');
     
     if (req.files && req.files.zipFile) {
+      const uploadedFile = req.files.zipFile[0];
+      const isZip = uploadedFile.originalname.toLowerCase().endsWith('.zip');
+      const tagsJson = tags ? JSON.stringify(JSON.parse(tags)) : existingDemo.tags;
+
+      if (!isZip) {
+        const code = fs.readFileSync(uploadedFile.path, 'utf-8');
+        await runQuery(`
+          UPDATE demos
+          SET title = ?, description = ?, code = ?, tags = ?, project_type = 'single-file',
+              entry_file = NULL, project_size = ?, status = 'pending', updated_at = ?
+          WHERE id = ?
+        `, [
+          title || existingDemo.title,
+          description || existingDemo.description,
+          code,
+          tagsJson,
+          Buffer.byteLength(code, 'utf-8'),
+          Date.now(),
+          demoId
+        ]);
+        fs.unlinkSync(uploadedFile.path);
+        const updatedDemo = await getRow('SELECT * FROM demos WHERE id = ?', [demoId]);
+        return res.json({
+          code: 200,
+          message: '更新提交成功，等待管理员审批',
+          data: mapDemoRow(updatedDemo)
+        });
+      }
+
       if (fs.existsSync(projectDir)) {
         fs.renameSync(projectDir, backupDir);
       }
@@ -899,7 +972,7 @@ router.post('/:id/update', uploadMultiple, async (req, res) => {
       
       await runQuery(`
         UPDATE demos 
-        SET title = ?, description = ?, code = ?, original_code = ?, config = ?, 
+        SET title = ?, description = ?, code = ?, original_code = ?, config = ?, tags = ?,
             entry_file = ?, project_size = ?, status = 'pending', updated_at = ?
         WHERE id = ?
       `, [
@@ -908,6 +981,7 @@ router.post('/:id/update', uploadMultiple, async (req, res) => {
         projectInfo.entryFiles[0],
         hasOriginal ? 'has_original_files' : existingDemo.original_code,
         configJson,
+        tagsJson,
         projectInfo.entryFiles[0],
         projectInfo.totalSize,
         Date.now(),
@@ -931,15 +1005,17 @@ router.post('/:id/update', uploadMultiple, async (req, res) => {
       });
     } else {
       const configJson = config ? JSON.stringify(config) : existingDemo.config;
+      const tagsJson = tags ? JSON.stringify(JSON.parse(tags)) : existingDemo.tags;
       
       await runQuery(`
         UPDATE demos 
-        SET title = ?, description = ?, config = ?, status = 'pending', updated_at = ?
+        SET title = ?, description = ?, config = ?, tags = ?, status = 'pending', updated_at = ?
         WHERE id = ?
       `, [
         title || existingDemo.title,
         description || existingDemo.description,
         configJson,
+        tagsJson,
         Date.now(),
         demoId
       ]);
@@ -953,6 +1029,23 @@ router.post('/:id/update', uploadMultiple, async (req, res) => {
     }
   } catch (error) {
     console.error('Update demo error:', error);
+    try {
+      const demoId = req.params.id;
+      const projectDir = path.join(PROJECTS_DIR, demoId);
+      const backupPrefix = demoId + '_backup_';
+      const backup = fs.readdirSync(PROJECTS_DIR).find(name => name.startsWith(backupPrefix));
+      if (backup) {
+        if (fs.existsSync(projectDir)) fs.rmSync(projectDir, { recursive: true, force: true });
+        fs.renameSync(path.join(PROJECTS_DIR, backup), projectDir);
+      }
+      for (const files of Object.values(req.files || {})) {
+        for (const file of files) {
+          if (file.path && fs.existsSync(file.path)) fs.unlinkSync(file.path);
+        }
+      }
+    } catch (cleanupError) {
+      console.error('Update demo cleanup error:', cleanupError);
+    }
     res.status(500).json({ code: 500, message: '服务器错误', data: null });
   }
 });

@@ -186,7 +186,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
     }
   };
 
-  // 全局视图：设置用户角色（总管理员、分管理员、普通用户）
+  // 全局视图：普通用户只能设置为分管理员或恢复为普通用户
   // 只有原始admin账号可以修改角色
   const handleSetUserRole = async (user: UserType, newRole: UserRole) => {
     // 只有admin账号可以设置角色
@@ -204,7 +204,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
     setActionLoading(true);
     try {
       await UsersAPI.setRole(user.id, newRole);
-      const roleName = newRole === 'general_admin' ? '总管理员' : newRole === 'site_sub_admin' ? '分管理员' : '普通用户';
+      const roleName = newRole === 'site_sub_admin' ? '分管理员' : '普通用户';
       alert(`已将 ${user.username} 设为${roleName}`);
       await loadUsers();
     } catch (error: any) {
@@ -341,7 +341,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
                       {/* 
                         管理员设置说明：
                         - 在社区用户管理中：社区创始人可以设置社区分管理员
-                        - 在全局用户管理中：只有admin账号可以设置总管理员或分管理员
+                        - 在全局用户管理中：只有admin账号可以设置或撤销分管理员
                       */}
                       {canManageUsers && user.id !== currentUserId && (
                         activeCommunity ? (
@@ -361,7 +361,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
                           </button>
                         ) : (
                           // 全局视图：只有admin账号可以设置角色
-                          currentUser?.username === 'admin' ? (
+                          currentUser?.username === 'admin' && user.role !== 'general_admin' ? (
                             <select
                               value={user.role}
                               onChange={(e) => handleSetUserRole(user, e.target.value as UserRole)}
@@ -377,7 +377,6 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
                             >
                               <option value="user">普通用户</option>
                               <option value="site_sub_admin">分管理员</option>
-                              <option value="general_admin">总管理员</option>
                             </select>
                           ) : (
                             // 非admin用户只显示角色标签

@@ -521,8 +521,8 @@ export const CommunityAdminPanel: React.FC<CommunityAdminPanelProps> = ({
                           <p className="text-sm text-slate-500">ID: {userId}</p>
                         </div>
                       </div>
-                      {/* 只有创建者和总管理员可以处理申请，分管理员不行 */}
-                      {(isCreator || isGeneralAdmin) && (
+                      {/* 所有管理员都可以审核加入申请，但分管理员不能移除成员 */}
+                      {isAnyAdmin && (
                         <div className="flex gap-2">
                           <button
                             onClick={() => handleApproveRequest(userId)}

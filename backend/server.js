@@ -3,7 +3,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import http from 'http';
-import { initDatabase, getDatabase } from './database.js';
+import { initDatabase, getDatabase, ensureSiteSubAdminRole } from './database.js';
 import { setupWebSocket } from './websocket.js';
 import path from 'path';
 import fs from 'fs';
@@ -31,6 +31,7 @@ const PORT = process.env.PORT || 3001;
 
 // Initialize database
 initDatabase();
+await ensureSiteSubAdminRole();
 
 // 使用环境变量或默认路径，确保目录位置正确
 // 使用 path.resolve 确保路径是绝对路径，避免跨系统路径分隔符问题
@@ -498,4 +499,3 @@ server.listen(PORT, '0.0.0.0', () => {
 ╚════════════════════════════════════════════════════════╝
   `);
 });
-
