@@ -386,7 +386,7 @@ router.patch('/:id/members/:userId/role', async (req, res) => {
     res.json({ code: 200, message: `Role updated to ${newRole}`, data: null });
   } catch (error) {
     console.error('Error updating member role:', error);
-    res.status(500).json({ code: 500, message: 'Server error', data: null });
+    res.status(500).json({ code: 500, message: `设置社区分管理员失败: ${error.message}`, data: null });
   }
 });
 

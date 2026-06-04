@@ -3,7 +3,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import http from 'http';
-import { initDatabase, getDatabase, ensureSiteSubAdminRole, repairOrphanedCommunities } from './database.js';
+import { initDatabase, getDatabase, ensureRuntimeSchema, ensureSiteSubAdminRole, repairOrphanedCommunities } from './database.js';
 import { setupWebSocket } from './websocket.js';
 import path from 'path';
 import fs from 'fs';
@@ -31,6 +31,7 @@ const PORT = process.env.PORT || 3001;
 
 // Initialize database
 initDatabase();
+await ensureRuntimeSchema();
 await ensureSiteSubAdminRole();
 await repairOrphanedCommunities();
 
@@ -465,9 +466,10 @@ app.get('/api/v1/health', (req, res) => {
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Error:', err);
-  res.status(500).json({
-    code: 500,
-    message: 'Internal Server Error',
+  const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 500;
+  res.status(status).json({
+    code: status,
+    message: err.message || 'Internal Server Error',
     data: null
   });
 });

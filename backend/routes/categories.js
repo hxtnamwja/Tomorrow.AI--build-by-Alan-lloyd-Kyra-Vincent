@@ -185,7 +185,7 @@ router.put('/:id', async (req, res) => {
     res.json({ code: 200, message: 'Updated successfully', data: mapCategoryRow(updatedCategory) });
   } catch (error) {
     console.error('Error updating category:', error);
-    res.status(500).json({ code: 500, message: 'Server error', data: null });
+    res.status(500).json({ code: 500, message: `目录名称保存失败: ${error.message}`, data: null });
   }
 });
 

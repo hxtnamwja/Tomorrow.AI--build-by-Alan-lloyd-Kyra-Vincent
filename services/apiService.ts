@@ -59,8 +59,15 @@ const apiRequest = async <T>(
   });
   
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Unknown error' }));
-    throw new Error(error.message || `HTTP ${response.status}`);
+    const rawError = await response.text();
+    let message = rawError || `HTTP ${response.status}`;
+    try {
+      const parsed = JSON.parse(rawError);
+      message = parsed.message || message;
+    } catch {
+      if (rawError.includes('<html')) message = `服务器代理错误（HTTP ${response.status}）`;
+    }
+    throw new Error(message);
   }
   
   // 变更操作后自动清除缓存

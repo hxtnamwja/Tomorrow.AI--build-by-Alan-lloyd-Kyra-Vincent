@@ -214,3 +214,57 @@ export const repairOrphanedCommunities = async () => {
     `, [orphan.community_id, creatorId, Date.now()]);
   }
 };
+
+const ensureColumn = async (table, column, definition) => {
+  const columns = await getAllRows(`PRAGMA table_info(${table})`);
+  if (!columns.some(item => item.name === column)) {
+    console.log(`[Database] Adding missing column ${table}.${column}`);
+    await runQuery(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+};
+
+export const ensureRuntimeSchema = async () => {
+  await ensureColumn('community_members', 'role', "TEXT DEFAULT 'member' CHECK(role IN ('member', 'admin'))");
+  await ensureColumn('communities', 'type', "TEXT DEFAULT 'closed' CHECK(type IN ('open', 'closed'))");
+
+  await ensureColumn('demos', 'creator_id', 'TEXT');
+  await ensureColumn('demos', 'config', 'TEXT');
+  await ensureColumn('demos', 'original_code', 'TEXT');
+  await ensureColumn('demos', 'updated_at', 'INTEGER');
+  await ensureColumn('demos', 'archived', 'INTEGER DEFAULT 0');
+  await ensureColumn('demos', 'archived_at', 'INTEGER');
+  await ensureColumn('demos', 'tags', 'TEXT');
+  await ensureColumn('demos', 'project_type', "TEXT DEFAULT 'single-file' CHECK(project_type IN ('single-file', 'multi-file'))");
+  await ensureColumn('demos', 'entry_file', 'TEXT');
+  await ensureColumn('demos', 'project_size', 'INTEGER');
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS demo_publications (
+      id TEXT PRIMARY KEY,
+      demo_id TEXT NOT NULL,
+      layer TEXT NOT NULL CHECK(layer IN ('general', 'community')),
+      community_id TEXT,
+      category_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'published', 'rejected')),
+      rejection_reason TEXT,
+      requested_by TEXT NOT NULL,
+      requested_at INTEGER NOT NULL,
+      reviewed_by TEXT,
+      reviewed_at INTEGER
+    )
+  `);
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS demo_locations (
+      id TEXT PRIMARY KEY,
+      demo_id TEXT NOT NULL,
+      layer TEXT NOT NULL CHECK(layer IN ('general', 'community')),
+      community_id TEXT,
+      category_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      UNIQUE(demo_id, layer, community_id)
+    )
+  `);
+
+  await runQuery("UPDATE community_members SET role = 'member' WHERE role IS NULL");
+  await runQuery("UPDATE communities SET type = 'closed' WHERE type IS NULL");
+};
