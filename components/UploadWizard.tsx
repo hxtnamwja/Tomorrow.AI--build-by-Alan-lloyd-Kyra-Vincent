@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Target, Globe, Users, Check, Upload, FileCode, Play, Image, X, FolderOpen, FileText, Sparkles, CheckCircle2, Database, Users2, RefreshCw, Zap, Bot, Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Target, Globe, Users, Check, Upload, FileCode, Play, Image, X, FolderOpen, FileText, Sparkles, CheckCircle2, Database, Users2, RefreshCw, Zap, Bot, Search, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import { Demo, Category, Subject, Bounty, Layer, Community } from '../types';
 import { AiService, GeneratedProject } from '../services/aiService';
 import { TagSelector } from './TagSelector';
@@ -161,6 +161,8 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
   const [projectStructure, setProjectStructure] = useState([] as ProjectFile[]);
   const [isAnalyzingZip, setIsAnalyzingZip] = useState(false);
   const [previewContent, setPreviewContent] = useState('');
+  const [previewZoom, setPreviewZoom] = useState(1);
+  const previewIframeRef = useRef<HTMLIFrameElement>(null);
   const [entryFile, setEntryFile] = useState('');
   const [formData, setFormData] = useState({
     title: bountyContext?.programTitle || '',
@@ -215,6 +217,19 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
       }));
     }
   }, [bountyContext, initialContext]);
+
+  const applyPreviewZoom = () => {
+    const root = previewIframeRef.current?.contentDocument?.documentElement;
+    if (root) root.style.zoom = String(previewZoom);
+  };
+
+  useEffect(() => {
+    applyPreviewZoom();
+  }, [previewZoom, formData.code, previewContent, step]);
+
+  const handlePreviewZoomOut = () => setPreviewZoom(value => Math.max(0.5, value - 0.25));
+  const handlePreviewZoomIn = () => setPreviewZoom(value => Math.min(2, value + 0.25));
+  const handlePreviewZoomReset = () => setPreviewZoom(1);
 
 
   const handleThumbnailUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1392,23 +1407,58 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
 
          {step === 3 && (
             <div className="h-full flex flex-col animate-in slide-in-from-right-8 duration-300">
-              <label className="block text-sm font-medium text-slate-700 mb-3">{t('stepPreview')}</label>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+                <label className="block text-sm font-medium text-slate-700">{t('stepPreview')}</label>
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl p-1">
+                  <button
+                    type="button"
+                    onClick={handlePreviewZoomOut}
+                    disabled={previewZoom <= 0.5}
+                    className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-600 hover:bg-white hover:text-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    title="缩小预览"
+                  >
+                    <ZoomOut className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handlePreviewZoomReset}
+                    className="min-w-16 h-9 px-3 flex items-center justify-center gap-1 rounded-lg text-slate-600 hover:bg-white hover:text-indigo-600 transition-colors text-xs font-bold tabular-nums"
+                    title="重置预览缩放"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    {Math.round(previewZoom * 100)}%
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handlePreviewZoomIn}
+                    disabled={previewZoom >= 2}
+                    className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-600 hover:bg-white hover:text-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    title="放大预览"
+                  >
+                    <ZoomIn className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
               <div className="flex-1 min-h-[400px] border-2 border-slate-200 border-dashed rounded-xl bg-white overflow-hidden relative">
                  {projectMode === 'single' ? (
                    <iframe 
+                     ref={previewIframeRef}
                      key={`single-${formData.code.length}`}
                      srcDoc={formData.code} 
                      className="w-full h-full absolute inset-0 border-0" 
                      title={t('stepPreview')} 
                      sandbox="allow-scripts allow-popups allow-modals allow-same-origin"
+                     onLoad={applyPreviewZoom}
                    />
                  ) : previewContent ? (
                    <iframe 
+                     ref={previewIframeRef}
                      key={`multi-${previewContent.length}`}
                      srcDoc={previewContent} 
                      className="w-full h-full absolute inset-0 border-0" 
                      title={t('stepPreview')} 
                      sandbox="allow-scripts allow-popups allow-modals allow-same-origin"
+                     onLoad={applyPreviewZoom}
                    />
                  ) : (
                    <div className="flex items-center justify-center h-full bg-slate-50">
