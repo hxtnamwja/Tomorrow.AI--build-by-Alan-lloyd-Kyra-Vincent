@@ -39,7 +39,6 @@ import { TeamPage } from './components/TeamPage';
 import { AnnouncementCard } from './components/AnnouncementCard';
 import { AnnouncementManager } from './components/AnnouncementManager';
 import { TagDisplay } from './components/TagDisplay';
-import { PlayfulLoader } from './components/PlayfulLoader';
 
 import { AuthPage } from './components/AuthPage';
 
@@ -123,7 +122,6 @@ export default function App() {
   const [pendingUrlDemoId, setPendingUrlDemoId] = useState<string | null>(initialUrlState.demoId);
   const [openingDemoId, setOpeningDemoId] = useState<string | null>(null);
   const [demosLoading, setDemosLoading] = useState(true);
-  const [contentLoading, setContentLoading] = useState(true);
   const refreshSequence = useRef(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'date' | 'likes'>('date');
@@ -334,7 +332,6 @@ export default function App() {
 
   const refreshAllData = async (forceRefresh: boolean = false) => {
     const sequence = ++refreshSequence.current;
-    setContentLoading(true);
     setDemosLoading(true);
     const now = Date.now();
     const cacheExpiry = 5 * 60 * 1000; // 5分钟缓存
@@ -500,7 +497,6 @@ export default function App() {
     } finally {
       if (sequence === refreshSequence.current) {
         setDemosLoading(false);
-        setContentLoading(false);
       }
     }
   };
@@ -1745,9 +1741,7 @@ export default function App() {
     );
   };
 
-  const renderDemosGrid = () => demosLoading ? (
-    <PlayfulLoader message={layer === 'community' ? '正在探索社区素材...' : '正在整理知识素材...'} />
-  ) : (
+  const renderDemosGrid = () => (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8 pb-20">
       {filteredDemos.map(demo => {
         const isGeneralAdmin = role === 'general_admin';
@@ -1974,7 +1968,7 @@ export default function App() {
         );
       })}
       
-      {filteredDemos.length === 0 && (
+      {filteredDemos.length === 0 && !demosLoading && (
         <div className="col-span-full py-32 text-center">
           <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
             <Search className="w-10 h-10 text-slate-300" />
@@ -1989,9 +1983,6 @@ export default function App() {
   const renderGallery = () => renderGalleryWithAnnouncements();
 
   const renderCommunityHall = () => {
-      if (contentLoading && communities.length === 0) {
-        return <PlayfulLoader message="正在召集社区成员..." />;
-      }
       return (
           <div className="space-y-8 pb-20">
               <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 border-b border-slate-200 pb-6 gap-6">
@@ -2725,11 +2716,6 @@ export default function App() {
       {renderSidebar()}
 
       <main className="pt-20 md:pt-24 pb-24 md:pb-20 px-3 sm:px-4 md:px-10 md:pl-80 w-full transition-all duration-300 relative z-10">
-        {contentLoading && (
-          <div className="fixed inset-0 md:left-72 top-16 z-40 bg-slate-50/88 backdrop-blur-sm flex items-center justify-center">
-            <PlayfulLoader message={layer === 'community' ? '正在刷新社区世界...' : '正在整理知识宇宙...'} />
-          </div>
-        )}
         <div className="w-full max-w-[1400px] mx-auto">
           <AnimatePresence mode="wait">
             <motion.div
