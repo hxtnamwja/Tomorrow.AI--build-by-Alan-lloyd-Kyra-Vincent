@@ -196,6 +196,7 @@ export const DemosAPI = {
         config: demo.config,
         bountyId: demo.bountyId,
         tags: demo.tags,
+        sourceVisibility: demo.sourceVisibility || 'open',
       }),
     });
     return result.data;
@@ -223,6 +224,14 @@ export const DemosAPI = {
     const result = await apiRequest<Demo>(`/demos/${id}/tags`, {
       method: 'PATCH',
       body: JSON.stringify({ tags }),
+    });
+    return result.data;
+  },
+
+  updateSourceVisibility: async (id: string, sourceVisibility: 'open' | 'closed'): Promise<Demo> => {
+    const result = await apiRequest<Demo>(`/demos/${id}/source-visibility`, {
+      method: 'PATCH',
+      body: JSON.stringify({ sourceVisibility }),
     });
     return result.data;
   },

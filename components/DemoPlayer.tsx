@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { X, RefreshCw, Sparkles, Heart, Maximize2, Minimize2, Smartphone, Send, Trash2, FolderOpen, AlertTriangle, Monitor, MonitorOff, UserCircle, Trash, Award, BookOpen, FlaskConical, Beaker, Trophy, Edit3, Hash } from 'lucide-react';
+import { X, RefreshCw, Sparkles, Heart, Maximize2, Minimize2, Smartphone, Send, Trash2, FolderOpen, AlertTriangle, Monitor, MonitorOff, UserCircle, Trash, Award, BookOpen, FlaskConical, Beaker, Trophy, Edit3, Hash, Copy, Download, Lock, Unlock } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Demo, Category, Subject, UserRole } from '../types';
 import { AiService } from '../services/aiService';
@@ -64,6 +64,7 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, onDemoUp
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [newComment, setNewComment] = useState('');
   const [commentActionLoading, setCommentActionLoading] = useState(false);
+  const [sourceVisibility, setSourceVisibility] = useState<'open' | 'closed'>(demo.sourceVisibility || 'open');
 
   // Check if this is a multi-file project
   const isMultiFile = demo.projectType === 'multi-file';
@@ -639,6 +640,54 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, onDemoUp
     const userLevel = calculateLevel(currentUser.contributionPoints || 0, currentUser.role === 'general_admin');
     return isLevelAtLeast(userLevel, 'researcher1');
   }, [currentUser]);
+
+  const viewerId = currentUserId || currentUser?.id || '';
+  const canManageSource = (
+    demo.creatorId === viewerId ||
+    demo.author === currentUser?.username ||
+    demo.author === viewerId
+  );
+  useEffect(() => {
+    setSourceVisibility(demo.sourceVisibility || 'open');
+  }, [demo.id, demo.sourceVisibility]);
+
+  const canViewSource = sourceVisibility !== 'closed' || canManageSource;
+  const currentSourceText = isMultiFile
+    ? fileContent
+    : (codeViewMode === 'original' && demo.originalCode && demo.originalCode !== 'has_original_files'
+      ? demo.originalCode
+      : demo.code);
+
+  const handleCopySource = async () => {
+    if (!currentSourceText) return;
+    await navigator.clipboard.writeText(currentSourceText);
+    alert('源码已复制');
+  };
+
+  const handleDownloadSource = () => {
+    if (!currentSourceText) return;
+    const filename = isMultiFile ? (selectedFile || 'source.txt').split('/').pop() || 'source.txt' : 'index.html';
+    const blob = new Blob([currentSourceText], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleToggleSourceVisibility = async () => {
+    const nextVisibility = sourceVisibility === 'closed' ? 'open' : 'closed';
+    try {
+      await DemosAPI.updateSourceVisibility(demo.id, nextVisibility);
+      setSourceVisibility(nextVisibility);
+      await onDemoUpdated?.();
+      alert(nextVisibility === 'closed' ? '源码已设为闭源' : '源码已设为开源');
+    } catch (error) {
+      console.error('Update source visibility error:', error);
+      alert('源码可见性更新失败');
+    }
+  };
 
   // Mobile fullscreen state
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -1440,7 +1489,7 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, onDemoUp
                      {t('editDemo')}
                    </button>
                  )}
-                 
+
                  {onReportDemo && (
                    <button
                      onClick={onReportDemo}
@@ -1524,6 +1573,50 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, onDemoUp
 
             {activeTab === 'code' && (
               <div className="animate-in fade-in slide-in-from-right-4 duration-300 h-full flex flex-col">
+                {!canViewSource ? (
+                  <div className="h-full flex items-center justify-center">
+                    <div className="max-w-sm text-center p-8 rounded-2xl border border-slate-200 bg-slate-50">
+                      <Lock className="w-10 h-10 text-slate-400 mx-auto mb-4" />
+                      <h4 className="font-bold text-slate-800 mb-2">该程序源码已闭源</h4>
+                      <p className="text-sm text-slate-500">发布者选择不公开源码。你仍然可以正常体验程序内容。</p>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs text-slate-500">
+                    {sourceVisibility === 'closed' ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                    <span>{sourceVisibility === 'closed' ? '闭源，仅作者可见' : '开源，所有用户可见'}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {canManageSource && (
+                      <button
+                        onClick={handleToggleSourceVisibility}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 text-white hover:bg-indigo-700 border border-indigo-600 flex items-center gap-1.5"
+                      >
+                        {sourceVisibility === 'closed' ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                        {sourceVisibility === 'closed' ? '设为开源' : '设为闭源'}
+                      </button>
+                    )}
+                    <button
+                      onClick={handleCopySource}
+                      disabled={!currentSourceText}
+                      className="px-3 py-1.5 rounded-lg text-xs font-medium bg-white text-slate-600 hover:bg-slate-100 border border-slate-200 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      复制源码
+                    </button>
+                    <button
+                      onClick={handleDownloadSource}
+                      disabled={!currentSourceText}
+                      className="px-3 py-1.5 rounded-lg text-xs font-medium bg-white text-slate-600 hover:bg-slate-100 border border-slate-200 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      下载文件
+                    </button>
+                  </div>
+                </div>
+
                 {(demo.originalCode && demo.originalCode !== 'has_original_files' || hasOriginalVersion) && (
                   <div className="mb-4 p-3 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl border border-indigo-200">
                     <div className="flex items-center justify-between mb-2">
@@ -1634,6 +1727,8 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, onDemoUp
                         ? demo.originalCode 
                         : demo.code}
                     </pre>
+                  </>
+                )}
                   </>
                 )}
               </div>

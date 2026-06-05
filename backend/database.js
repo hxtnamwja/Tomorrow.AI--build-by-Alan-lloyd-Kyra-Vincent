@@ -237,6 +237,7 @@ export const ensureRuntimeSchema = async () => {
   await ensureColumn('demos', 'project_type', "TEXT DEFAULT 'single-file' CHECK(project_type IN ('single-file', 'multi-file'))");
   await ensureColumn('demos', 'entry_file', 'TEXT');
   await ensureColumn('demos', 'project_size', 'INTEGER');
+  await ensureColumn('demos', 'source_visibility', "TEXT DEFAULT 'open' CHECK(source_visibility IN ('open', 'closed'))");
 
   await runQuery(`
     CREATE TABLE IF NOT EXISTS demo_publications (
@@ -267,4 +268,5 @@ export const ensureRuntimeSchema = async () => {
 
   await runQuery("UPDATE community_members SET role = 'member' WHERE role IS NULL");
   await runQuery("UPDATE communities SET type = 'closed' WHERE type IS NULL");
+  await runQuery("UPDATE demos SET source_visibility = 'open' WHERE source_visibility IS NULL");
 };

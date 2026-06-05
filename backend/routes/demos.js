@@ -58,6 +58,7 @@ const mapDemoRow = (row) => {
     communityId: row.community_id || undefined,
     code: row.code,
     originalCode: row.original_code || undefined,
+    sourceVisibility: row.source_visibility || 'open',
     author: row.author,
     creatorId: row.creator_id || undefined,
     thumbnailUrl: row.thumbnail_url || undefined,
@@ -129,7 +130,7 @@ router.get('/', async (req, res) => {
     : `d.id, d.title, d.description, d.category_id, d.layer, d.community_id,
        d.author, d.creator_id, d.thumbnail_url, d.status, d.created_at, d.updated_at,
        d.rejection_reason, d.bounty_id, d.project_type, d.entry_file, d.project_size,
-       d.archived, d.archived_at, d.tags`;
+       d.archived, d.archived_at, d.tags, d.source_visibility`;
   let query = `
     SELECT ${demoFields}, COUNT(l.id) as like_count
     FROM demos d 
@@ -200,7 +201,7 @@ router.get('/', async (req, res) => {
 
 // POST /demos
 router.post('/', async (req, res) => {
-  const { title, description, categoryId, layer, communityId, code, originalCode, config, bountyId, tags } = req.body;
+  const { title, description, categoryId, layer, communityId, code, originalCode, config, bountyId, tags, sourceVisibility } = req.body;
   
   const user = await getCurrentUser(req);
   const resolvedAuthor = user ? user.username : 'Anonymous';
@@ -213,9 +214,9 @@ router.post('/', async (req, res) => {
     const configJson = config ? JSON.stringify(config) : null;
     const tagsJson = tags ? JSON.stringify(tags) : null;
     await runQuery(`
-      INSERT INTO demos (id, title, description, category_id, layer, community_id, code, original_code, config, tags, author, creator_id, status, bounty_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [id, title, description, categoryId, layer, communityId || null, code, originalCode || null, configJson, tagsJson, resolvedAuthor, creatorId, 'pending', bountyId || null, now]);
+      INSERT INTO demos (id, title, description, category_id, layer, community_id, code, original_code, config, tags, source_visibility, author, creator_id, status, bounty_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [id, title, description, categoryId, layer, communityId || null, code, originalCode || null, configJson, tagsJson, sourceVisibility === 'closed' ? 'closed' : 'open', resolvedAuthor, creatorId, 'pending', bountyId || null, now]);
     
     const demo = await getRow('SELECT * FROM demos WHERE id = ?', [id]);
     res.json({ code: 200, message: 'Success', data: mapDemoRow(demo) });
@@ -517,6 +518,43 @@ router.patch('/:id/tags', async (req, res) => {
   }
 });
 
+// PATCH /demos/:id/source-visibility - Original owner can switch source visibility anytime
+router.patch('/:id/source-visibility', async (req, res) => {
+  const { sourceVisibility } = req.body;
+  const user = await getCurrentUser(req);
+
+  if (!user) {
+    return res.status(401).json({ code: 401, message: 'Not authenticated', data: null });
+  }
+  if (!['open', 'closed'].includes(sourceVisibility)) {
+    return res.status(400).json({ code: 400, message: 'Invalid source visibility', data: null });
+  }
+
+  try {
+    const demo = await getRow('SELECT * FROM demos WHERE id = ?', [req.params.id]);
+    if (!demo) {
+      return res.status(404).json({ code: 404, message: 'Demo not found', data: null });
+    }
+
+    const isOwner = demo.creator_id === user.id;
+    if (!isOwner) {
+      return res.status(403).json({ code: 403, message: 'Only the owner can change source visibility', data: null });
+    }
+
+    await runQuery('UPDATE demos SET source_visibility = ?, updated_at = ? WHERE id = ?', [
+      sourceVisibility,
+      Date.now(),
+      req.params.id
+    ]);
+
+    const updatedDemo = await getRow('SELECT * FROM demos WHERE id = ?', [req.params.id]);
+    res.json({ code: 200, message: 'Source visibility updated', data: mapDemoRow(updatedDemo) });
+  } catch (error) {
+    console.error('Error updating source visibility:', error);
+    res.status(500).json({ code: 500, message: 'Server error', data: null });
+  }
+});
+
 // DELETE /demos/:id/permanent - Permanently delete demo
 router.delete('/:id/permanent', async (req, res) => {
   try {
@@ -697,7 +735,7 @@ const uploadMultiple = upload.fields([
 
 // POST /demos/upload-zip - 上传ZIP项目
 router.post('/upload-zip', uploadMultiple, async (req, res) => {
-  const { title, description, categoryId, layer, communityId, config, tags, bountyId } = req.body;
+  const { title, description, categoryId, layer, communityId, config, tags, bountyId, sourceVisibility } = req.body;
   const user = await getCurrentUser(req);
   
   console.log('[Upload-ZIP] Starting upload process...');
@@ -798,8 +836,8 @@ router.post('/upload-zip', uploadMultiple, async (req, res) => {
     console.log('[Upload-ZIP] Inserting into database...');
     await runQuery(`
       INSERT INTO demos (id, title, description, category_id, layer, community_id, 
-                       code, original_code, config, tags, author, creator_id, status, project_type, entry_file, project_size, created_at, bounty_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       code, original_code, config, tags, source_visibility, author, creator_id, status, project_type, entry_file, project_size, created_at, bounty_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       demoId,
       title,
@@ -811,6 +849,7 @@ router.post('/upload-zip', uploadMultiple, async (req, res) => {
       hasOriginal ? 'has_original_files' : null,
       configJson,
       tagsJson,
+      sourceVisibility === 'closed' ? 'closed' : 'open',
       user.username,
       user.id,
       'pending',

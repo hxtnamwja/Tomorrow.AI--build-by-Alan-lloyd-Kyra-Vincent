@@ -1,10 +1,10 @@
 import React from 'react';
 import { Atom, BookOpen, Sparkles } from 'lucide-react';
 
-export const PlayfulLoader = ({ message = '正在整理知识素材...' }: { message?: string }) => (
-  <div className="min-h-[42vh] flex items-center justify-center px-6">
+export const PlayfulLoader = ({ message = '正在整理知识素材...', compact = false }: { message?: string; compact?: boolean }) => (
+  <div className={`${compact ? 'min-h-[30vh] py-10' : 'min-h-[42vh]'} flex items-center justify-center px-6`}>
     <div className="text-center">
-      <div className="relative w-28 h-28 mx-auto mb-5">
+      <div className={`${compact ? 'w-24 h-24' : 'w-28 h-28'} relative mx-auto mb-5`}>
         <div className="absolute inset-3 rounded-full border border-indigo-200 animate-ping opacity-50" />
         <div className="absolute inset-0 animate-spin" style={{ animationDuration: '4s' }}>
           <Sparkles className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-6 text-amber-400" />

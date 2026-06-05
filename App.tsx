@@ -38,6 +38,7 @@ import { PointsShop } from './components/PointsShop';
 import { TeamPage } from './components/TeamPage';
 import { AnnouncementCard } from './components/AnnouncementCard';
 import { AnnouncementManager } from './components/AnnouncementManager';
+import { PlayfulLoader } from './components/PlayfulLoader';
 import { TagDisplay } from './components/TagDisplay';
 
 import { AuthPage } from './components/AuthPage';
@@ -120,7 +121,6 @@ export default function App() {
   const [activeCategory, setActiveCategory] = useState<string>(initialUrlState.categoryId);
   const [selectedDemo, setSelectedDemo] = useState<Demo | null>(null);
   const [pendingUrlDemoId, setPendingUrlDemoId] = useState<string | null>(initialUrlState.demoId);
-  const [openingDemoId, setOpeningDemoId] = useState<string | null>(null);
   const [demosLoading, setDemosLoading] = useState(true);
   const refreshSequence = useRef(0);
   const [searchQuery, setSearchQuery] = useState('');
@@ -193,14 +193,12 @@ export default function App() {
   useEffect(() => {
     const demoId = pendingUrlDemoId;
     if (!demoId || selectedDemo?.id === demoId || !isLoggedIn) return;
-    setOpeningDemoId(demoId);
     DemosAPI.getById(demoId)
       .then(demo => {
         setSelectedDemo(demo);
         setPendingUrlDemoId(null);
       })
       .catch(error => console.error('Failed to restore demo from URL:', error))
-      .finally(() => setOpeningDemoId(null));
   }, [pendingUrlDemoId, isLoggedIn, selectedDemo?.id]);
 
   const [chatMessages, setChatMessages] = useState<{role: 'user'|'model', text: string}[]>([]);
@@ -692,7 +690,6 @@ export default function App() {
         return;
       }
     }
-    setOpeningDemoId(demo.id);
     try {
       const fullDemo = demo.code || demo.projectType === 'multi-file'
         ? demo
@@ -704,8 +701,6 @@ export default function App() {
     } catch (error) {
       console.error('Failed to load demo details:', error);
       alert('素材加载失败，请稍后重试');
-    } finally {
-      setOpeningDemoId(null);
     }
   };
 
@@ -1741,8 +1736,19 @@ export default function App() {
     );
   };
 
+  const isMaterialLibraryView = view === 'explore' && (layer === 'general' || (layer === 'community' && !!activeCommunityId));
+
   const renderDemosGrid = () => (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8 pb-20">
+      {isMaterialLibraryView && demosLoading && filteredDemos.length === 0 && (
+        <div className="col-span-full">
+          <PlayfulLoader
+            message={layer === 'community' ? '正在加载社区素材...' : '正在加载知识素材...'}
+            compact
+          />
+        </div>
+      )}
+
       {filteredDemos.map(demo => {
         const isGeneralAdmin = role === 'general_admin';
         const isDemoCommAdmin = demo.layer === 'community' && communities.find(c => c.id === demo.communityId)?.creatorId === currentUserId;
@@ -3013,15 +3019,6 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {openingDemoId && !selectedDemo && (
-        <div className="fixed inset-0 z-[55] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center">
-          <div className="text-center text-white">
-            <div className="w-14 h-14 mx-auto mb-5 rounded-full border-4 border-white/20 border-t-indigo-400 animate-spin" />
-            <p className="font-medium">正在准备素材...</p>
-          </div>
-        </div>
-      )}
-      
       {/* Bounty Modals */}
       <CreateBountyModal 
         isOpen={isBountyModalOpen}

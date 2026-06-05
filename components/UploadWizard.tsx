@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Target, Globe, Users, Check, Upload, FileCode, Play, Image, X, FolderOpen, FileText, Sparkles, CheckCircle2, Database, Users2, RefreshCw, Zap, Bot, Search, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { Target, Globe, Users, Check, Upload, FileCode, Play, Image, X, FolderOpen, FileText, Sparkles, CheckCircle2, Database, Users2, RefreshCw, Zap, Bot, Search, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, Maximize2, Minimize2 } from 'lucide-react';
 import { Demo, Category, Subject, Bounty, Layer, Community } from '../types';
 import { AiService, GeneratedProject } from '../services/aiService';
 import { TagSelector } from './TagSelector';
@@ -162,6 +162,7 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
   const [isAnalyzingZip, setIsAnalyzingZip] = useState(false);
   const [previewContent, setPreviewContent] = useState('');
   const [previewZoom, setPreviewZoom] = useState(1);
+  const [isPreviewExpanded, setIsPreviewExpanded] = useState(false);
   const previewIframeRef = useRef<HTMLIFrameElement>(null);
   const [entryFile, setEntryFile] = useState('');
   const [formData, setFormData] = useState({
@@ -173,6 +174,7 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
     communityId: bountyContext?.publishCommunityId || initialContext?.communityId,
     code: '',
     thumbnailUrl: '',
+    sourceVisibility: 'open' as 'open' | 'closed',
     tags: bountyContext?.programTags || [] as string[]
   });
   const [thumbnailPreview, setThumbnailPreview] = useState(null as string | null);
@@ -205,6 +207,7 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
         communityId: bountyContext.publishCommunityId || undefined,
         code: '',
         thumbnailUrl: '',
+        sourceVisibility: 'open',
         tags: bountyContext.programTags || [] as string[]
       });
     } else if (initialContext) {
@@ -213,7 +216,8 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
         ...prev,
         layer: initialContext.layer,
         communityId: initialContext.communityId,
-        categoryId: initialContext.categoryId || ''
+        categoryId: initialContext.categoryId || '',
+        sourceVisibility: prev.sourceVisibility || 'open'
       }));
     }
   }, [bountyContext, initialContext]);
@@ -230,6 +234,10 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
   const handlePreviewZoomOut = () => setPreviewZoom(value => Math.max(0.5, value - 0.25));
   const handlePreviewZoomIn = () => setPreviewZoom(value => Math.min(2, value + 0.25));
   const handlePreviewZoomReset = () => setPreviewZoom(1);
+
+  useEffect(() => {
+    if (step !== 3) setIsPreviewExpanded(false);
+  }, [step]);
 
 
   const handleThumbnailUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -535,6 +543,7 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
         formDataToSend.append('description', formData.description);
         formDataToSend.append('categoryId', formData.categoryId);
         formDataToSend.append('layer', formData.layer);
+        formDataToSend.append('sourceVisibility', formData.sourceVisibility);
         if (formData.communityId) {
           formDataToSend.append('communityId', formData.communityId);
         }
@@ -595,6 +604,7 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
             projectType: 'multi-file',
             entryFile: result.data.entryFile,
             projectSize: result.data.size,
+            sourceVisibility: formData.sourceVisibility,
             tags: formData.tags
           });
         } else {
@@ -615,6 +625,7 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
       formDataToSend.append('description', formData.description);
       formDataToSend.append('categoryId', formData.categoryId);
       formDataToSend.append('layer', formData.layer);
+      formDataToSend.append('sourceVisibility', formData.sourceVisibility);
       if (formData.communityId) {
         formDataToSend.append('communityId', formData.communityId);
       }
@@ -673,6 +684,7 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
             projectType: 'multi-file',
             entryFile: result.data.entryFile,
             projectSize: result.data.size,
+            sourceVisibility: formData.sourceVisibility,
             tags: formData.tags
           });
         } else {
@@ -704,6 +716,7 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
         createdAt: Date.now(),
         bountyId: bountyContext?.id,
         projectType: 'single-file',
+        sourceVisibility: formData.sourceVisibility,
         tags: formData.tags
       };
       console.log('Demo to submit:', { codeLength: newDemo.code?.length, originalCodeLength: newDemo.originalCode?.length });
@@ -720,7 +733,7 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
   const myCommunities = communities.filter(c => c.members.includes(currentUserId) && c.status === 'approved');
 
   return (
-    <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden min-h-[600px] flex flex-col relative">
+    <div className="max-w-4xl mx-auto min-h-[600px] bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden flex flex-col relative">
        {isSubmitting && (
          <div className="absolute inset-0 z-50 bg-white/80 backdrop-blur-sm flex items-center justify-center">
            <div className="text-center px-6">
@@ -749,7 +762,7 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
          </div>
        </div>
 
-       <div className="flex-1 p-8 overflow-y-auto">
+       <div className="flex-1 overflow-y-auto p-8">
          
          {step === 0 && (
              <div className="max-w-4xl mx-auto animate-in slide-in-from-right-8 duration-300">
@@ -1365,6 +1378,31 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
                 )}
              </div>
              
+             <div className="mt-6 p-4 bg-white rounded-xl border border-slate-200">
+               <div className="flex items-center gap-2 mb-3">
+                 <FileCode className="w-4 h-4 text-slate-500" />
+                 <span className="text-sm font-medium text-slate-700">代码可见性</span>
+               </div>
+               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                 <button
+                   type="button"
+                   onClick={() => setFormData({...formData, sourceVisibility: 'open'})}
+                   className={`p-3 rounded-xl border-2 text-left transition-all ${formData.sourceVisibility === 'open' ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 hover:border-slate-300'}`}
+                 >
+                   <div className="font-bold text-sm text-slate-800">开源</div>
+                   <p className="text-xs text-slate-500 mt-1">所有用户都可以查看、复制和下载源码</p>
+                 </button>
+                 <button
+                   type="button"
+                   onClick={() => setFormData({...formData, sourceVisibility: 'closed'})}
+                   className={`p-3 rounded-xl border-2 text-left transition-all ${formData.sourceVisibility === 'closed' ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 hover:border-slate-300'}`}
+                 >
+                   <div className="font-bold text-sm text-slate-800">闭源</div>
+                   <p className="text-xs text-slate-500 mt-1">源码仅发布者自己可见，程序仍可正常体验</p>
+                 </button>
+               </div>
+             </div>
+
              <div className="mt-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
                <div className="flex items-center gap-2 mb-3">
                  <Image className="w-4 h-4 text-slate-500" />
@@ -1410,6 +1448,16 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
                 <label className="block text-sm font-medium text-slate-700">{t('stepPreview')}</label>
                 <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl p-1">
+                  <button
+                    type="button"
+                    onClick={() => setIsPreviewExpanded(value => !value)}
+                    className="h-9 px-3 flex items-center justify-center gap-2 rounded-lg text-slate-600 hover:bg-white hover:text-indigo-600 transition-colors text-xs font-bold"
+                    title="全屏预览"
+                  >
+                    <Maximize2 className="w-4 h-4" />
+                    全屏预览
+                  </button>
+                  <div className="w-px h-6 bg-slate-200" />
                   <button
                     type="button"
                     onClick={handlePreviewZoomOut}
@@ -1488,6 +1536,77 @@ export const UploadWizard = ({ t, categories, communities, currentUserId, role, 
             </div>
          )}
        </div>
+
+       {isPreviewExpanded && step === 3 && (
+         <div className="fixed inset-0 z-[120] bg-slate-950 flex flex-col">
+           <div className="h-14 px-4 sm:px-6 bg-slate-900 border-b border-slate-800 flex items-center justify-between shrink-0">
+             <div className="text-white font-bold text-sm truncate">{formData.title || t('stepPreview')}</div>
+             <div className="flex items-center gap-2">
+               <button
+                 type="button"
+                 onClick={handlePreviewZoomOut}
+                 disabled={previewZoom <= 0.5}
+                 className="w-10 h-10 flex items-center justify-center rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                 title="缩小预览"
+               >
+                 <ZoomOut className="w-4 h-4" />
+               </button>
+               <button
+                 type="button"
+                 onClick={handlePreviewZoomReset}
+                 className="h-10 px-3 flex items-center justify-center gap-1 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white transition-colors text-xs font-bold tabular-nums"
+                 title="重置预览缩放"
+               >
+                 <RotateCcw className="w-4 h-4" />
+                 {Math.round(previewZoom * 100)}%
+               </button>
+               <button
+                 type="button"
+                 onClick={handlePreviewZoomIn}
+                 disabled={previewZoom >= 2}
+                 className="w-10 h-10 flex items-center justify-center rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                 title="放大预览"
+               >
+                 <ZoomIn className="w-4 h-4" />
+               </button>
+               <button
+                 type="button"
+                 onClick={() => setIsPreviewExpanded(false)}
+                 className="h-10 px-3 flex items-center justify-center gap-2 rounded-lg bg-white text-slate-900 hover:bg-slate-100 transition-colors text-sm font-bold"
+                 title="退出全屏预览"
+               >
+                 <Minimize2 className="w-4 h-4" />
+                 退出
+               </button>
+             </div>
+           </div>
+           <div className="flex-1 min-h-0 bg-white">
+             {projectMode === 'single' ? (
+               <iframe
+                 ref={previewIframeRef}
+                 key={`expanded-single-${formData.code.length}`}
+                 srcDoc={formData.code}
+                 className="w-full h-full border-0 block"
+                 title={t('stepPreview')}
+                 sandbox="allow-scripts allow-popups allow-modals allow-same-origin"
+                 onLoad={applyPreviewZoom}
+               />
+             ) : previewContent ? (
+               <iframe
+                 ref={previewIframeRef}
+                 key={`expanded-multi-${previewContent.length}`}
+                 srcDoc={previewContent}
+                 className="w-full h-full border-0 block"
+                 title={t('stepPreview')}
+                 sandbox="allow-scripts allow-popups allow-modals allow-same-origin"
+                 onLoad={applyPreviewZoom}
+               />
+             ) : (
+               <div className="h-full flex items-center justify-center text-slate-500">暂无可预览内容</div>
+             )}
+           </div>
+         </div>
+       )}
 
        <div className="px-8 py-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
          <button 

@@ -132,6 +132,7 @@ export interface Demo {
   description: string;
   code: string; // The HTML/JS source or entry file path for multi-file projects
   originalCode?: string; // Original code before AI configuration
+  sourceVisibility?: 'open' | 'closed'; // Whether source code is visible to everyone or only the owner
   author: string;
   creatorId?: string; // User ID of the creator
   thumbnailUrl?: string; // Base64 or URL
