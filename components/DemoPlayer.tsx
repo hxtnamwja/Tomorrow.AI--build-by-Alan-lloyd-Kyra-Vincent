@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { X, RefreshCw, Sparkles, Heart, Maximize2, Minimize2, Smartphone, Send, Trash2, FolderOpen, AlertTriangle, Monitor, UserCircle, Trash, Award, BookOpen, FlaskConical, Beaker, Trophy, Edit3, Hash } from 'lucide-react';
+import { X, RefreshCw, Sparkles, Heart, Maximize2, Minimize2, Smartphone, Send, Trash2, FolderOpen, AlertTriangle, Monitor, MonitorOff, UserCircle, Trash, Award, BookOpen, FlaskConical, Beaker, Trophy, Edit3, Hash } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Demo, Category, Subject, UserRole } from '../types';
 import { AiService } from '../services/aiService';
@@ -735,9 +735,41 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, onDemoUp
     };
   }, [isResizing]);
 
+  const exitNativeFullscreen = async () => {
+    const exitFullscreen =
+      document.exitFullscreen ||
+      (document as any).webkitExitFullscreen ||
+      (document as any).msExitFullscreen ||
+      (document as any).mozCancelFullScreen;
+
+    if (exitFullscreen && document.fullscreenElement) {
+      await exitFullscreen.call(document);
+    }
+  };
+
+  const toggleImmersive = async () => {
+    if (isImmersive) {
+      setIsImmersive(false);
+      return;
+    }
+
+    if (isFullscreen) {
+      try {
+        await exitNativeFullscreen();
+      } catch (err) {
+        console.warn('Exit fullscreen before immersive failed:', err);
+      }
+      setIsFullscreen(false);
+    }
+
+    setIsImmersive(true);
+    setShowControls(true);
+  };
+
   // Handle mobile fullscreen toggle
   const toggleFullscreen = async () => {
     if (!isFullscreen) {
+      setIsImmersive(false);
       try {
         if (previewContainerRef.current) {
           const element = previewContainerRef.current;
@@ -773,16 +805,7 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, onDemoUp
     } else {
       // Exit fullscreen
       try {
-        const exitFullscreen = 
-          document.exitFullscreen ||
-          (document as any).webkitExitFullscreen ||
-          (document as any).msExitFullscreen ||
-          (document as any).mozCancelFullScreen;
-        
-        if (exitFullscreen && document.fullscreenElement) {
-          await exitFullscreen.call(document);
-        }
-        
+        await exitNativeFullscreen();
         setIsFullscreen(false);
       } catch (err) {
         console.warn('Exit fullscreen failed:', err);
@@ -1134,11 +1157,11 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, onDemoUp
                 </button>
                 {/* Immersive mode avoids fragile browser fullscreen behavior on mobile. */}
                 <button
-                  onClick={() => setIsImmersive(value => !value)}
+                  onClick={toggleImmersive}
                   className="p-2 text-slate-400 hover:text-white transition-colors hover:bg-slate-700 rounded-lg ml-1"
                   title={isImmersive ? '退出沉浸模式' : '沉浸模式'}
                 >
-                  {isImmersive ? <Minimize2 className="w-4 h-4" /> : <Monitor className="w-4 h-4" />}
+                  {isImmersive ? <MonitorOff className="w-4 h-4" /> : <Monitor className="w-4 h-4" />}
                 </button>
                 {/* Mobile Fullscreen Button */}
                 <button
