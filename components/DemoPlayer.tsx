@@ -50,7 +50,7 @@ const CATEGORY_ID_TO_TRANSLATION_KEY: Record<string, string> = {
   'cat-creative-tools': 'creativeTools'
 };
 
-export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, onDemoUpdated, t, onOpenDemo, onLikeChange, onViewUserProfile, allUsers, onPublishToOther, onReportDemo, currentUserRole, categories }: { demo: Demo, currentUserId?: string, currentUser?: any, onClose: () => void, onDemoUpdated?: () => Promise<void> | void, t: any, onOpenDemo?: (demoId: string) => void, onLikeChange?: (demoId: string, likeCount: number, userLiked: boolean) => void, onViewUserProfile?: (userId: string) => void, allUsers?: any[], onPublishToOther?: () => void, onReportDemo?: () => void, currentUserRole?: UserRole, categories?: Category[] }) => {
+export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, onDemoUpdated, t, onOpenDemo, onLikeChange, onViewUserProfile, allUsers, onPublishToOther, onReportDemo, currentUserRole, categories, isLoadingDetails = false }: { demo: Demo, currentUserId?: string, currentUser?: any, onClose: () => void, onDemoUpdated?: () => Promise<void> | void, t: any, onOpenDemo?: (demoId: string) => void, onLikeChange?: (demoId: string, likeCount: number, userLiked: boolean) => void, onViewUserProfile?: (userId: string) => void, allUsers?: any[], onPublishToOther?: () => void, onReportDemo?: () => void, currentUserRole?: UserRole, categories?: Category[], isLoadingDetails?: boolean }) => {
   const [activeTab, setActiveTab] = useState<'basicInfo' | 'code' | 'ai'>('basicInfo');
   const [iframeKey, setIframeKey] = useState(0);
   const [previewSession, setPreviewSession] = useState(() => Date.now());
@@ -65,6 +65,10 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, onDemoUp
   const [newComment, setNewComment] = useState('');
   const [commentActionLoading, setCommentActionLoading] = useState(false);
   const [sourceVisibility, setSourceVisibility] = useState<'open' | 'closed'>(demo.sourceVisibility || 'open');
+
+  useEffect(() => {
+    setDemoLoading(true);
+  }, [demo.id, isLoadingDetails]);
 
   // Check if this is a multi-file project
   const isMultiFile = demo.projectType === 'multi-file';
@@ -337,6 +341,8 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, onDemoUp
     
     return content;
   }, [demo, isMultiFile]);
+
+  const canRenderPreview = !isLoadingDetails && (isMultiFile ? !!demo.entryFile : !!getDemoCodeWithInjection);
 
   // Multi-file project state
   const [projectStructure, setProjectStructure] = useState<any[]>([]);
@@ -1105,27 +1111,29 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, onDemoUp
           {/* Main Preview Area */}
           <div className={`flex-1 relative w-full bg-white overflow-hidden ${isExpandedPreview && showControls ? 'h-[calc(100vh-56px)]' : (isExpandedPreview ? 'h-full' : '')}`}>
             <div className="w-full h-full">
-              <iframe
-                ref={iframeRef}
-                key={iframeKey}
-                src={isMultiFile ? previewUrl : undefined}
-                srcDoc={!isMultiFile ? getDemoCodeWithInjection : undefined}
-                className="border-0 block w-full h-full"
-                title={demo.title}
-                sandbox="allow-scripts allow-same-origin allow-popups allow-modals allow-forms allow-downloads allow-pointer-lock"
-                allow="camera; microphone; geolocation; fullscreen; display-capture; autoplay; clipboard-read; clipboard-write; picture-in-picture"
-                onLoad={() => {
-                  applyIframeZoom();
-                  setDemoLoading(false);
-                }}
-                onError={() => setDemoLoading(false)}
-              />
+              {canRenderPreview && (
+                <iframe
+                  ref={iframeRef}
+                  key={iframeKey}
+                  src={isMultiFile ? previewUrl : undefined}
+                  srcDoc={!isMultiFile ? getDemoCodeWithInjection : undefined}
+                  className="border-0 block w-full h-full"
+                  title={demo.title}
+                  sandbox="allow-scripts allow-same-origin allow-popups allow-modals allow-forms allow-downloads allow-pointer-lock"
+                  allow="camera; microphone; geolocation; fullscreen; display-capture; autoplay; clipboard-read; clipboard-write; picture-in-picture"
+                  onLoad={() => {
+                    applyIframeZoom();
+                    setDemoLoading(false);
+                  }}
+                  onError={() => setDemoLoading(false)}
+                />
+              )}
             </div>
-            {demoLoading && (
+            {(isLoadingDetails || demoLoading || !canRenderPreview) && (
               <div className="absolute inset-0 flex items-center justify-center bg-white/80 backdrop-blur-sm z-10">
                 <div className="text-center p-6">
                   <div className="w-12 h-12 mx-auto mb-4 rounded-full border-4 border-indigo-200 border-t-indigo-600 animate-spin"></div>
-                  <p className="text-slate-600 font-medium">加载中...</p>
+                  <p className="text-slate-600 font-medium">{isLoadingDetails ? '正在加载程序素材...' : '加载中...'}</p>
                 </div>
               </div>
             )}

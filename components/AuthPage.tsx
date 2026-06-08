@@ -1,14 +1,15 @@
 
 import React, { useState } from 'react';
-import { User, Lock, Mail, ArrowRight, UserPlus, LogIn, ShieldCheck } from 'lucide-react';
+import { User, Lock, ArrowRight, ShieldCheck, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface AuthPageProps {
   onLogin: (username: string, role: 'user' | 'general_admin', isRegister?: boolean, password?: string) => Promise<void>;
   t: (key: string) => string;
+  onBack?: () => void;
 }
 
-export const AuthPage = ({ onLogin, t }: AuthPageProps) => {
+export const AuthPage = ({ onLogin, t, onBack }: AuthPageProps) => {
   const [isRegister, setIsRegister] = useState(false);
   const [isAdminLogin, setIsAdminLogin] = useState(false);
   
@@ -79,6 +80,17 @@ export const AuthPage = ({ onLogin, t }: AuthPageProps) => {
         animate={{ opacity: 1, y: 0 }}
         className="bg-white/80 backdrop-blur-xl border border-white/50 shadow-2xl rounded-2xl w-full max-w-md overflow-hidden relative z-10"
       >
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="absolute top-5 right-5 z-20 w-9 h-9 rounded-full bg-white/80 border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-white transition-colors flex items-center justify-center"
+            aria-label="返回浏览"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
+
         {/* Header */}
         <div className={`h-2 bg-gradient-to-r ${isAdminLogin ? 'from-purple-500 to-indigo-600' : 'from-blue-500 to-cyan-500'}`}></div>
         

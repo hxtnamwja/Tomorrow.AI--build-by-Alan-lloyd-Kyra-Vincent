@@ -6,7 +6,7 @@ import {
   ChevronRight, Globe, Users, Trash2, Folder,
   ChevronDown, Satellite, UserCircle, Briefcase, Palette, Image as ImageIcon,
   Target, Award, CheckCircle, Clock, Edit3, Save, Play, RefreshCw, Camera,
-  LogOut, LayoutDashboard, Settings, User as UserIcon, KeyRound, Building2, Zap, Heart,
+  LogIn, LogOut, LayoutDashboard, Settings, User as UserIcon, KeyRound, Building2, Zap, Heart,
   HelpCircle, BookOpen, Menu, Send, MessageCircle, Repeat, MessageSquare, Moon, Sun,
   Lock, Megaphone
 } from 'lucide-react';
@@ -120,6 +120,7 @@ export default function App() {
 
   const [activeCategory, setActiveCategory] = useState<string>(initialUrlState.categoryId);
   const [selectedDemo, setSelectedDemo] = useState<Demo | null>(null);
+  const [selectedDemoDetailLoadingId, setSelectedDemoDetailLoadingId] = useState<string | null>(null);
   const [pendingUrlDemoId, setPendingUrlDemoId] = useState<string | null>(initialUrlState.demoId);
   const [demosLoading, setDemosLoading] = useState(true);
   const refreshSequence = useRef(0);
@@ -192,7 +193,12 @@ export default function App() {
 
   useEffect(() => {
     const demoId = pendingUrlDemoId;
-    if (!demoId || selectedDemo?.id === demoId || !isLoggedIn) return;
+    if (!demoId || selectedDemo?.id === demoId) return;
+    if (!isLoggedIn) {
+      requireLogin('当前演示程序仅在登录后开放。登录后即可打开并体验完整内容。');
+      setPendingUrlDemoId(null);
+      return;
+    }
     DemosAPI.getById(demoId)
       .then(demo => {
         setSelectedDemo(demo);
@@ -205,6 +211,11 @@ export default function App() {
   const [chatInput, setChatInput] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [showAuthPage, setShowAuthPage] = useState(false);
+  const [loginPrompt, setLoginPrompt] = useState<{ isOpen: boolean; message: string }>({
+    isOpen: false,
+    message: ''
+  });
 
   // Hidden File Input for cover update
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -241,6 +252,16 @@ export default function App() {
 
   const t = (key: keyof typeof DICTIONARY['en']) => getTranslation(language, key);
 
+  const requireLogin = (message = '当前功能仅在登录后开放。登录后即可使用社区、演示程序和创作功能。') => {
+    setLoginPrompt({ isOpen: true, message });
+  };
+
+  const openLoginPage = () => {
+    setLoginPrompt({ isOpen: false, message: '' });
+    setIsProfileMenuOpen(false);
+    setShowAuthPage(true);
+  };
+
   // Save theme to localStorage
   useEffect(() => {
     localStorage.setItem('sci_demo_theme', theme);
@@ -256,6 +277,7 @@ export default function App() {
       const storedUser = StorageService.getCurrentUser();
       if (storedUser) {
         setIsLoggedIn(true);
+        setShowAuthPage(false);
         setRole(storedUser.role as UserRole);
         setCurrentUserId(storedUser.id);
         setIsBanned(storedUser.isBanned || 0);
@@ -638,6 +660,7 @@ export default function App() {
       
       setRole(result.user.role as UserRole);
       setIsLoggedIn(true);
+      setShowAuthPage(false);
       setCurrentUserId(result.user.id);
       setIsBanned(result.user.isBanned || 0);
       setBanReason(result.user.banReason);
@@ -666,12 +689,20 @@ export default function App() {
   const handleLogout = () => {
     StorageService.logout();
     setIsLoggedIn(false);
+    setShowAuthPage(false);
     setRole('user');
     setActiveCommunityId(null);
     setCurrentUserId('');
+    setCurrentUser(null);
+    setSelectedDemo(null);
   };
 
   const handleOpenDemoWithPermission = async (demo: Demo, fromProfile: boolean = false) => {
+    if (!isLoggedIn) {
+      requireLogin('当前演示程序仅在登录后开放。登录后即可打开并体验完整内容。');
+      return;
+    }
+
     console.log('=== Debug handleOpenDemoWithPermission ===');
     console.log('demo:', demo);
     console.log('demo.layer:', demo.layer);
@@ -690,17 +721,27 @@ export default function App() {
         return;
       }
     }
+
+    setSelectedDemo(demo);
+    if (fromProfile) {
+      setWasViewingProfile(true);
+    }
+
+    const needsDetails = !demo.code && demo.projectType !== 'multi-file';
+    if (!needsDetails) {
+      setSelectedDemoDetailLoadingId(null);
+      return;
+    }
+
+    setSelectedDemoDetailLoadingId(demo.id);
     try {
-      const fullDemo = demo.code || demo.projectType === 'multi-file'
-        ? demo
-        : await DemosAPI.getById(demo.id);
+      const fullDemo = await DemosAPI.getById(demo.id);
       setSelectedDemo(fullDemo);
-      if (fromProfile) {
-        setWasViewingProfile(true);
-      }
     } catch (error) {
       console.error('Failed to load demo details:', error);
       alert('素材加载失败，请稍后重试');
+    } finally {
+      setSelectedDemoDetailLoadingId(current => current === demo.id ? null : current);
     }
   };
 
@@ -876,6 +917,10 @@ export default function App() {
 
   const openQuickUpload = () => {
     if (activeCategory === 'All') return;
+    if (!isLoggedIn) {
+      requireLogin('快捷上传仅在登录后开放。登录后即可把程序直接发布到当前目录。');
+      return;
+    }
     setBountyContext(null);
     setQuickUploadContext({
       layer,
@@ -960,6 +1005,10 @@ export default function App() {
   // --- Community Actions ---
 
   const handleCreateCommunity = async () => {
+      if (!isLoggedIn) {
+        requireLogin('创建社区仅在登录后开放。登录后即可申请创建自己的社区。');
+        return;
+      }
       await StorageService.createCommunity(createCommData.name, createCommData.desc, currentUserId, createCommData.type);
       setCreateCommData({name: '', desc: '', type: 'closed'});
       setIsCreateCommModalOpen(false);
@@ -968,6 +1017,10 @@ export default function App() {
   };
 
   const handleJoinOpenCommunity = async (communityId: string) => {
+    if (!isLoggedIn) {
+      requireLogin('加入社区仅在登录后开放。登录后即可申请加入社区或使用邀请码加入。');
+      return;
+    }
     try {
       await StorageService.joinOpenCommunity(communityId);
       alert('Successfully joined the community!');
@@ -978,6 +1031,10 @@ export default function App() {
   };
 
   const handleJoinByCode = async () => {
+      if (!isLoggedIn) {
+          requireLogin('加入社区仅在登录后开放。登录后即可申请加入社区或使用邀请码加入。');
+          return;
+      }
       const success = await StorageService.joinCommunityByCode(joinCode, currentUserId);
       if(success) {
           alert(t('successMsg'));
@@ -990,6 +1047,10 @@ export default function App() {
   };
 
   const handleRequestJoin = async (commId: string) => {
+      if (!isLoggedIn) {
+          requireLogin('加入社区仅在登录后开放。登录后即可申请加入社区或使用邀请码加入。');
+          return;
+      }
       await StorageService.joinCommunityRequest(commId, currentUserId);
       alert("Request sent.");
       await refreshAllData(true);
@@ -1138,6 +1199,18 @@ export default function App() {
               <div className="space-y-3 animate-in slide-in-from-left-4 duration-300">
                   <div className="relative">
                       {(() => {
+                          if (!isLoggedIn) {
+                              return (
+                                  <button
+                                      onClick={() => requireLogin('创建社区仅在登录后开放。登录后即可申请创建自己的社区。')}
+                                      className="w-full mb-2 border border-dashed border-indigo-300 text-indigo-600 rounded-xl py-2.5 text-xs font-bold hover:bg-indigo-50/50 flex items-center justify-center gap-2 transition-colors"
+                                  >
+                                      <LogIn className="w-3.5 h-3.5" />
+                                      登录后创建社区
+                                  </button>
+                              );
+                          }
+
                           const userLevel = currentUser ? calculateLevel(currentUser.contributionPoints || 0, currentUser.role === 'general_admin') : 'learner';
                           const canCreate = isLevelAtLeast(userLevel, 'researcher1');
                           
@@ -1514,7 +1587,15 @@ export default function App() {
           </button>
 
           <button
-             onClick={() => { setBountyContext(null); setQuickUploadContext(null); setView('upload'); }}
+             onClick={() => {
+               if (!isLoggedIn) {
+                 requireLogin('上传程序仅在登录后开放。登录后即可发布自己的演示程序。');
+                 return;
+               }
+               setBountyContext(null);
+               setQuickUploadContext(null);
+               setView('upload');
+             }}
              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${view === 'upload' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
             {t('upload')}
@@ -1616,6 +1697,15 @@ export default function App() {
         </div>
       </div>
 
+      {!isLoggedIn ? (
+        <button
+          onClick={openLoginPage}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold transition-all border select-none shrink-0 cursor-pointer shadow-sm bg-gradient-to-r from-indigo-50 to-blue-50 text-indigo-700 border-indigo-100 hover:shadow-md"
+        >
+          <LogIn className="w-5 h-5 md:w-4 md:h-4" />
+          <span>登录</span>
+        </button>
+      ) : (
       <div className="relative ml-2 shrink-0">
         <button
           onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
@@ -1683,6 +1773,7 @@ export default function App() {
             </div>
           )}
         </div>
+      )}
     </header>
   );
 };
@@ -2044,7 +2135,13 @@ export default function App() {
                             />
                         </div>
                         <button 
-                            onClick={() => setIsJoinCodeModalOpen(true)}
+                          onClick={() => {
+                            if (!isLoggedIn) {
+                              requireLogin('加入社区仅在登录后开放。登录后即可申请加入社区或使用邀请码加入。');
+                              return;
+                            }
+                            setIsJoinCodeModalOpen(true);
+                          }}
                             className="px-6 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold hover:border-indigo-300 hover:text-indigo-600 hover:shadow-lg transition-all flex items-center gap-2 shadow-sm"
                         >
                             <KeyRound className="w-4 h-4" /> {t('joinByCode')}
@@ -2145,7 +2242,13 @@ export default function App() {
                                       </button>
                                   ) : (
                                       <button 
-                                          onClick={() => isOpenCommunity ? handleJoinOpenCommunity(c.id) : handleRequestJoin(c.id)}
+                                          onClick={() => {
+                                            if (!isLoggedIn) {
+                                              requireLogin('加入社区仅在登录后开放。登录后即可申请加入社区或使用邀请码加入。');
+                                              return;
+                                            }
+                                            isOpenCommunity ? handleJoinOpenCommunity(c.id) : handleRequestJoin(c.id);
+                                          }}
                                           className={`flex-1 px-4 py-3 font-bold rounded-xl transition-all ${
                                               isOpenCommunity 
                                                   ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:shadow-lg hover:shadow-emerald-500/30' 
@@ -2209,7 +2312,13 @@ export default function App() {
                <p className="text-slate-500 mt-2 text-lg">{t('bountyDesc')}</p>
             </div>
             <button 
-               onClick={() => setIsBountyModalOpen(true)}
+               onClick={() => {
+                 if (!isLoggedIn) {
+                   requireLogin('发布悬赏仅在登录后开放。登录后即可创建和管理悬赏任务。');
+                   return;
+                 }
+                 setIsBountyModalOpen(true);
+               }}
                className="px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-500/30 transition-all flex items-center gap-2"
             >
                <Plus className="w-5 h-5" /> {t('createBounty')}
@@ -2619,9 +2728,40 @@ export default function App() {
     );
   };
 
-  // --- Auth Gate ---
-  if (!isLoggedIn) {
-    return <AuthPage onLogin={handleLogin} t={t} />;
+  const renderLoginRequiredView = () => (
+    <div className="min-h-[55vh] flex items-center justify-center">
+      <div className="max-w-md w-full bg-white/85 backdrop-blur-xl rounded-2xl border border-white/60 shadow-xl p-8 text-center">
+        <div className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+          <Lock className="w-8 h-8" />
+        </div>
+        <h2 className="text-2xl font-bold text-slate-900 mb-3">需要登录后使用</h2>
+        <p className="text-sm text-slate-500 leading-relaxed mb-6">
+          当前功能仅在登录后开放。你可以继续浏览公开资源，登录后即可使用上传、社区、个人中心和管理功能。
+        </p>
+        <div className="flex flex-col sm:flex-row gap-3 justify-center">
+          <button
+            type="button"
+            onClick={() => setView('explore')}
+            className="px-5 py-3 rounded-xl text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
+          >
+            返回浏览
+          </button>
+          <button
+            type="button"
+            onClick={openLoginPage}
+            className="px-5 py-3 rounded-xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-500/25 transition-colors inline-flex items-center justify-center gap-2"
+          >
+            <LogIn className="w-4 h-4" />
+            去登录
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // --- Auth View ---
+  if (!isLoggedIn && showAuthPage) {
+    return <AuthPage onLogin={handleLogin} t={t} onBack={() => setShowAuthPage(false)} />;
   }
 
   // --- Team Page ---
@@ -2721,6 +2861,51 @@ export default function App() {
       {renderTopbar()}
       {renderSidebar()}
 
+      <AnimatePresence>
+        {loginPrompt.isOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[80] bg-slate-950/45 backdrop-blur-sm flex items-center justify-center px-4"
+            onClick={() => setLoginPrompt({ isOpen: false, message: '' })}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 12, scale: 0.98 }}
+              className="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-white/70 overflow-hidden"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="p-7">
+                <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-5">
+                  <Lock className="w-7 h-7" />
+                </div>
+                <h3 className="text-xl font-bold text-slate-900 mb-2">需要登录后使用</h3>
+                <p className="text-sm text-slate-500 leading-relaxed">{loginPrompt.message}</p>
+              </div>
+              <div className="px-7 py-4 bg-slate-50 border-t border-slate-100 flex gap-3 justify-end">
+                <button
+                  type="button"
+                  onClick={() => setLoginPrompt({ isOpen: false, message: '' })}
+                  className="px-4 py-2.5 rounded-xl text-sm font-bold text-slate-600 hover:bg-white border border-transparent hover:border-slate-200 transition-colors"
+                >
+                  先浏览
+                </button>
+                <button
+                  type="button"
+                  onClick={openLoginPage}
+                  className="px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-500/25 transition-colors flex items-center gap-2"
+                >
+                  <LogIn className="w-4 h-4" />
+                  去登录
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <main className="pt-20 md:pt-24 pb-24 md:pb-20 px-3 sm:px-4 md:px-10 md:pl-80 w-full transition-all duration-300 relative z-10">
         <div className="w-full max-w-[1400px] mx-auto">
           <AnimatePresence mode="wait">
@@ -2731,7 +2916,9 @@ export default function App() {
               exit={{ opacity: 0, y: -15 }}
               transition={{ duration: 0.4, ease: "easeOut" }}
             >
-              {viewingUserId ? (
+              {!isLoggedIn && (viewingUserId || view === 'upload' || view === 'admin' || view === 'profile' || view === 'points_shop') ? (
+                renderLoginRequiredView()
+              ) : viewingUserId ? (
                 renderProfile()
               ) : (
                 <>
@@ -2958,12 +3145,14 @@ export default function App() {
         {selectedDemo && (
           <DemoPlayer
             demo={selectedDemo}
+            isLoadingDetails={selectedDemoDetailLoadingId === selectedDemo.id}
             currentUserId={currentUserId}
             currentUser={currentUser}
             currentUserRole={role}
             categories={categories}
             onClose={() => {
               setSelectedDemo(null);
+              setSelectedDemoDetailLoadingId(null);
               if (!wasViewingProfile) {
                 setViewingUserId(null);
               }
