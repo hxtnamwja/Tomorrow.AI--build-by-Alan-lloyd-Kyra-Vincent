@@ -109,11 +109,17 @@ const safeParseMarkdown = async (text: string): Promise<string> => {
       '<a href="#/demo/$2" class="text-indigo-600 underline cursor-pointer hover:text-indigo-800" data-demo-id="$2" style="color: #4f46e5; text-decoration: underline; cursor: pointer;">$1</a>'
     );
 
-    // Handle demo:// style links [text](demo://id)
-    html = html.replace(
-      /\[([^\]]+)\]\(demo:\/\/([^)]+)\)/g,
-      '<a href="#/demo/$2" class="text-indigo-600 underline cursor-pointer hover:text-indigo-800" data-demo-id="$2" style="color: #4f46e5; text-decoration: underline; cursor: pointer;">$1</a>'
-    );
+	    // Handle demo:// style links [text](demo://id)
+	    html = html.replace(
+	      /<a\s+[^>]*href="demo:\/\/([^"]+)"[^>]*>(.*?)<\/a>/gi,
+	      '<a href="#/demo/$1" class="text-indigo-600 underline cursor-pointer hover:text-indigo-800" data-demo-id="$1" style="color: #4f46e5; text-decoration: underline; cursor: pointer;">$2</a>'
+	    );
+
+	    // Handle demo:// style links before markdown parsing fallback
+	    html = html.replace(
+	      /\[([^\]]+)\]\(demo:\/\/([^)]+)\)/g,
+	      '<a href="#/demo/$2" class="text-indigo-600 underline cursor-pointer hover:text-indigo-800" data-demo-id="$2" style="color: #4f46e5; text-decoration: underline; cursor: pointer;">$1</a>'
+	    );
 
     // Handle raw demo:// links
     html = html.replace(

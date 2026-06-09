@@ -4,9 +4,18 @@ import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
 
+const parseJson = (value, fallback = undefined) => {
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    return fallback;
+  }
+};
+
 const mapPublicationRow = (row) => {
   if (!row) return null;
-  return {
+  const publication = {
     id: row.id,
     demoId: row.demo_id,
     layer: row.layer,
@@ -19,7 +28,61 @@ const mapPublicationRow = (row) => {
     reviewedBy: row.reviewed_by || undefined,
     reviewedAt: row.reviewed_at || undefined
   };
+
+  if (row.demo_status) {
+    publication.demo = {
+      id: row.demo_id,
+      title: row.demo_title,
+      description: row.demo_description || '',
+      categoryId: row.demo_category_id,
+      layer: row.demo_layer,
+      communityId: row.demo_community_id || undefined,
+      author: row.demo_author || 'Unknown',
+      creatorId: row.demo_creator_id || undefined,
+      thumbnailUrl: row.demo_thumbnail_url || undefined,
+      status: row.demo_status,
+      createdAt: row.demo_created_at,
+      updatedAt: row.demo_updated_at || undefined,
+      rejectionReason: row.demo_rejection_reason || undefined,
+      bountyId: row.demo_bounty_id || undefined,
+      projectType: row.demo_project_type || 'single-file',
+      entryFile: row.demo_entry_file || undefined,
+      projectSize: row.demo_project_size || undefined,
+      archived: row.demo_archived ? true : false,
+      archivedAt: row.demo_archived_at || undefined,
+      tags: parseJson(row.demo_tags, undefined),
+      sourceVisibility: row.demo_source_visibility || 'open'
+    };
+  }
+
+  return publication;
 };
+
+const publicationSelect = `
+  SELECT p.*,
+    d.title AS demo_title,
+    d.description AS demo_description,
+    d.category_id AS demo_category_id,
+    d.layer AS demo_layer,
+    d.community_id AS demo_community_id,
+    d.author AS demo_author,
+    d.creator_id AS demo_creator_id,
+    d.thumbnail_url AS demo_thumbnail_url,
+    d.status AS demo_status,
+    d.created_at AS demo_created_at,
+    d.updated_at AS demo_updated_at,
+    d.rejection_reason AS demo_rejection_reason,
+    d.bounty_id AS demo_bounty_id,
+    d.project_type AS demo_project_type,
+    d.entry_file AS demo_entry_file,
+    d.project_size AS demo_project_size,
+    d.archived AS demo_archived,
+    d.archived_at AS demo_archived_at,
+    d.tags AS demo_tags,
+    d.source_visibility AS demo_source_visibility
+  FROM demo_publications p
+  LEFT JOIN demos d ON d.id = p.demo_id
+`;
 
 const getCurrentUser = async (req) => {
   const authHeader = req.headers.authorization;
@@ -50,6 +113,44 @@ const isCommunityAdmin = async (communityId, userId) => {
     [communityId, userId]
   );
   return !!member;
+};
+
+const getTargetReviewMode = async (layer, communityId) => {
+  if (layer === 'community' && communityId) {
+    const community = await getRow('SELECT review_mode, type FROM communities WHERE id = ?', [communityId]);
+    return community?.review_mode || (community?.type === 'personal' ? 'post_review' : 'pre_review');
+  }
+  const setting = await getRow("SELECT value FROM app_settings WHERE key = 'general_review_mode'");
+  return setting?.value || 'pre_review';
+};
+
+const publishLocation = async (publication) => {
+  const demo = await getRow('SELECT * FROM demos WHERE id = ?', [publication.demo_id]);
+  if (!demo) return;
+  if (demo.status !== 'published') {
+    await runQuery('UPDATE demos SET status = ? WHERE id = ?', ['published', demo.id]);
+  }
+  await runQuery(`
+    UPDATE demos
+    SET layer = ?, community_id = ?, category_id = ?
+    WHERE id = ?
+  `, [
+    publication.layer,
+    publication.community_id || null,
+    publication.category_id,
+    publication.demo_id
+  ]);
+  await runQuery(`
+    INSERT OR IGNORE INTO demo_locations (id, demo_id, layer, community_id, category_id, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `, [
+    uuidv4(),
+    publication.demo_id,
+    publication.layer,
+    publication.community_id || null,
+    publication.category_id,
+    Date.now()
+  ]);
 };
 
 // POST /publications - Request to publish a demo to another community/layer
@@ -88,14 +189,25 @@ router.post('/', async (req, res) => {
   const now = Date.now();
 
   try {
+    const reviewMode = await getTargetReviewMode(layer, communityId || null);
+    const initialStatus = reviewMode === 'post_review' ? 'published' : 'pending';
     await runQuery(`
       INSERT INTO demo_publications 
-      (id, demo_id, layer, community_id, category_id, status, requested_by, requested_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `, [id, demoId, layer, communityId || null, categoryId, 'pending', user.id, now]);
+      (id, demo_id, layer, community_id, category_id, status, requested_by, requested_at, reviewed_by, reviewed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [id, demoId, layer, communityId || null, categoryId, initialStatus, user.id, now, initialStatus === 'published' ? user.id : null, initialStatus === 'published' ? now : null]);
 
-    const publication = await getRow('SELECT * FROM demo_publications WHERE id = ?', [id]);
-    res.json({ code: 200, message: 'Publication request submitted', data: mapPublicationRow(publication) });
+    if (initialStatus === 'published') {
+      await publishLocation({
+        demo_id: demoId,
+        layer,
+        community_id: communityId || null,
+        category_id: categoryId
+      });
+    }
+
+    const publication = await getRow(`${publicationSelect} WHERE p.id = ?`, [id]);
+    res.json({ code: 200, message: initialStatus === 'published' ? 'Published immediately' : 'Publication request submitted', data: mapPublicationRow(publication) });
   } catch (error) {
     console.error('Error creating publication request:', error);
     if (error.message && error.message.includes('UNIQUE constraint failed')) {
@@ -109,31 +221,31 @@ router.post('/', async (req, res) => {
 router.get('/', async (req, res) => {
   const { demoId, status, layer, communityId, requestedBy } = req.query;
   
-  let query = 'SELECT * FROM demo_publications WHERE 1=1';
+  let query = `${publicationSelect} WHERE 1=1`;
   const params = [];
 
   if (demoId) {
-    query += ' AND demo_id = ?';
+    query += ' AND p.demo_id = ?';
     params.push(demoId);
   }
   if (status) {
-    query += ' AND status = ?';
+    query += ' AND p.status = ?';
     params.push(status);
   }
   if (layer) {
-    query += ' AND layer = ?';
+    query += ' AND p.layer = ?';
     params.push(layer);
   }
   if (communityId) {
-    query += ' AND community_id = ?';
+    query += ' AND p.community_id = ?';
     params.push(communityId);
   }
   if (requestedBy) {
-    query += ' AND requested_by = ?';
+    query += ' AND p.requested_by = ?';
     params.push(requestedBy);
   }
 
-  query += ' ORDER BY requested_at DESC';
+  query += ' ORDER BY p.requested_at DESC';
 
   try {
     const publications = await getAllRows(query, params);
@@ -151,10 +263,7 @@ router.get('/pending', async (req, res) => {
     return res.status(401).json({ code:401, message: 'Unauthorized', data: null });
   }
 
-  let query = `
-    SELECT p.* FROM demo_publications p
-    WHERE p.status = 'pending'
-  `;
+  let query = `${publicationSelect} WHERE p.status = 'pending'`;
   const params = [];
 
   if (user.role !== 'general_admin' && user.role !== 'site_sub_admin') {
@@ -212,50 +321,10 @@ router.patch('/:id/status', async (req, res) => {
     `, [status, rejectionReason || null, user.id, now, req.params.id]);
 
     if (status === 'published') {
-      const demo = await getRow('SELECT * FROM demos WHERE id = ?', [publication.demo_id]);
-      if (demo) {
-        // Update demo status to published if it's not already
-        if (demo.status !== 'published') {
-          await runQuery('UPDATE demos SET status = ? WHERE id = ?', ['published', demo.id]);
-          console.log(`[Publications] Demo ${demo.id} marked as published globally`);
-        }
-
-        // Also update the demo's primary location to match the publication target
-        // This ensures the demo appears in the target layer/community
-        await runQuery(`
-          UPDATE demos 
-          SET layer = ?, community_id = ?, category_id = ?
-          WHERE id = ?
-        `, [
-          publication.layer,
-          publication.community_id || null,
-          publication.category_id,
-          publication.demo_id
-        ]);
-        console.log(`[Publications] Demo ${demo.id} primary location updated to: ${publication.layer}${publication.community_id ? ' (' + publication.community_id + ')' : ''}`);
-
-        // Also add to demo_locations for tracking multiple locations
-        try {
-          await runQuery(`
-            INSERT OR IGNORE INTO demo_locations (id, demo_id, layer, community_id, category_id, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-          `, [
-            uuidv4(),
-            publication.demo_id,
-            publication.layer,
-            publication.community_id || null,
-            publication.category_id,
-            Date.now()
-          ]);
-          console.log(`[Publications] Demo ${demo.id} added to demo_locations`);
-        } catch (locError) {
-          // demo_locations table might not exist, log but don't fail
-          console.log(`[Publications] Note: demo_locations insert skipped: ${locError.message}`);
-        }
-      }
+      await publishLocation(publication);
     }
 
-    const updated = await getRow('SELECT * FROM demo_publications WHERE id = ?', [req.params.id]);
+    const updated = await getRow(`${publicationSelect} WHERE p.id = ?`, [req.params.id]);
     res.json({ code: 200, message: 'Status updated', data: mapPublicationRow(updated) });
   } catch (error) {
     console.error('Error updating publication:', error);

@@ -24,10 +24,17 @@ export const DICTIONARY = {
     
     // Profile
     profileTitle: "Researcher Profile",
-    accountType: "Account Type",
-    memberSince: "Member Since",
-    contributions: "Contributions",
-    createCommunity: "Create Community",
+	    accountType: "Account Type",
+	    memberSince: "Member Since",
+	    contributions: "Contributions",
+	    editProfile: "Edit Profile",
+	    icon: "Icon",
+	    edit: "Edit",
+	    bilingualContent: "Bilingual Content",
+	    chineseOptional: "Chinese version (optional)",
+	    englishOptional: "English version (optional)",
+	    chooseCategoryIcon: "Choose category icon",
+	    createCommunity: "Create Community",
     myCommunities: "My Communities",
     communityStatus: "Status",
     
@@ -231,7 +238,7 @@ export const DICTIONARY = {
     generalLibrary: "General Library",
     noCommunity: "Temporarily not belonging to any community",
     publishedIn: "Published in:",
-    myFeedbacks: "My Feedbacks/Complaints",
+    myFeedbacks: "Support Center",
     archiveArea: "Archive Area",
     archivedDemosDesc: "These are your archived demos. You can restore or permanently delete them.",
     archived: "Archived",
@@ -266,7 +273,7 @@ export const DICTIONARY = {
     enterResolution: "Enter resolution (optional)...",
     markResolved: "Mark Resolved",
     dismiss: "Dismiss",
-    feedbackManagement: "Feedback/Complaint Management",
+    feedbackManagement: "Support Center Management",
     // DemoPlayer
     zoomOut: "Zoom Out",
     resetZoom: "Reset Zoom",
@@ -418,10 +425,17 @@ export const DICTIONARY = {
 
     // Profile
     profileTitle: "研究员档案",
-    accountType: "账户类型",
-    memberSince: "注册时间",
-    contributions: "贡献统计",
-    createCommunity: "创建社区",
+	    accountType: "账户类型",
+	    memberSince: "注册时间",
+	    contributions: "贡献统计",
+	    editProfile: "编辑档案",
+	    icon: "图标",
+	    edit: "编辑",
+	    bilingualContent: "双语内容",
+	    chineseOptional: "中文版本（可选）",
+	    englishOptional: "英文版本（可选）",
+	    chooseCategoryIcon: "选择分类图标",
+	    createCommunity: "创建社区",
     myCommunities: "我的社区",
     communityStatus: "状态",
 
@@ -625,7 +639,7 @@ export const DICTIONARY = {
     generalLibrary: "通用知识库",
     noCommunity: "暂时不归属于任何社区",
     publishedIn: "发布于：",
-    myFeedbacks: "我的反馈/投诉记录",
+    myFeedbacks: "客服中心",
     archiveArea: "留档区域",
     archivedDemosDesc: "这些是你已留档的程序，你可以恢复或永久删除它们。",
     archived: "留档",
@@ -660,7 +674,7 @@ export const DICTIONARY = {
     enterResolution: "输入处理结果（可选）...",
     markResolved: "标记已解决",
     dismiss: "驳回",
-    feedbackManagement: "反馈/投诉处理",
+    feedbackManagement: "客服中心处理",
     // DemoPlayer
     zoomOut: "缩小",
     resetZoom: "重置缩放",
@@ -1549,4 +1563,3 @@ export const getTagColor = (tagId: string) => {
   const tag = COMMON_TAGS.find(t => t.id === tagId);
   return tag?.color || '#94a3b8';
 };
-

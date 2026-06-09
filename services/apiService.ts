@@ -1,4 +1,4 @@
-import { Demo, Category, Bounty, Community, User, UserStats, DemoPublication, Feedback, Layer, Announcement } from '../types';
+import { Demo, Category, Bounty, Community, User, UserStats, DemoPublication, Feedback, Layer, Announcement, ReviewMode } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
 
@@ -30,7 +30,7 @@ const apiRequest = async <T>(
   cacheEnabled: boolean = true
 ): Promise<{ code: number; message: string; data: T }> => {
   const method = options.method || 'GET';
-  
+
   // 仅对 GET 请求使用缓存
   if (cacheEnabled && method === 'GET') {
     const cacheKey = generateCacheKey(endpoint, options);
@@ -42,22 +42,22 @@ const apiRequest = async <T>(
 
   const url = `${API_BASE_URL}${endpoint}`;
   const token = getToken();
-  
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...((options.headers as Record<string, string>) || {}),
   };
-  
+
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
-  
+
   const response = await fetch(url, {
     ...options,
     headers,
     cache: 'no-store', // 绕过浏览器缓存，确保获取最新数据
   });
-  
+
   if (!response.ok) {
     const rawError = await response.text();
     let message = rawError || `HTTP ${response.status}`;
@@ -69,20 +69,20 @@ const apiRequest = async <T>(
     }
     throw new Error(message);
   }
-  
+
   // 变更操作后自动清除缓存
   if (method !== 'GET') {
     clearCache();
   }
-  
+
   const data = await response.json();
-  
+
   // 缓存响应
   if (cacheEnabled && method === 'GET') {
     const cacheKey = generateCacheKey(endpoint, options);
     apiCache.set(cacheKey, { data, timestamp: Date.now() });
   }
-  
+
   return data;
 };
 
@@ -116,7 +116,7 @@ export const AuthAPI = {
     }
     return result.data;
   },
-  
+
   register: async (username: string, password: string) => {
     const result = await apiRequest<{ token: string; user: User }>('/auth/register', {
         method: 'POST',
@@ -129,7 +129,7 @@ export const AuthAPI = {
     }
     return result.data;
   },
-  
+
   getCurrentUser: async () => {
     const result = await apiRequest<User>('/auth/me');
     if (result.data) {
@@ -137,13 +137,13 @@ export const AuthAPI = {
     }
     return result.data;
   },
-  
+
   logout: () => {
     localStorage.removeItem('sci_demo_token');
     localStorage.removeItem('sci_demo_user');
     clearCache(); // 登出后清除缓存
   },
-  
+
   getStoredUser: () => {
     const userStr = localStorage.getItem('sci_demo_user');
     return userStr ? JSON.parse(userStr) : null;
@@ -176,18 +176,22 @@ export const DemosAPI = {
       thumbnailUrl: resolveApiUrl(demo.thumbnailUrl)
     }));
   },
-  
+
   getById: async (id: string): Promise<Demo> => {
     const result = await apiRequest<Demo>(`/demos/${id}`);
     return result.data;
   },
-  
+
   create: async (demo: Omit<Demo, 'id' | 'createdAt'>): Promise<Demo> => {
     const result = await apiRequest<Demo>('/demos', {
       method: 'POST',
       body: JSON.stringify({
         title: demo.title,
+        titleCn: demo.titleCn,
+        titleEn: demo.titleEn,
         description: demo.description,
+        descriptionCn: demo.descriptionCn,
+        descriptionEn: demo.descriptionEn,
         categoryId: demo.categoryId,
         layer: demo.layer,
         communityId: demo.communityId,
@@ -201,7 +205,7 @@ export const DemosAPI = {
     });
     return result.data;
   },
-  
+
   updateStatus: async (id: string, status: string, rejectionReason?: string): Promise<Demo> => {
     const result = await apiRequest<Demo>(`/demos/${id}/status`, {
       method: 'PATCH',
@@ -209,7 +213,7 @@ export const DemosAPI = {
     });
     return result.data;
   },
-  
+
   // Update cover image
   updateCover: async (id: string, thumbnailUrl: string): Promise<Demo> => {
     const result = await apiRequest<Demo>(`/demos/${id}/cover`, {
@@ -235,10 +239,11 @@ export const DemosAPI = {
     });
     return result.data;
   },
-  
-  delete: async (id: string): Promise<void> => {
+
+  delete: async (id: string, reason?: string): Promise<void> => {
     await apiRequest<void>(`/demos/${id}`, {
       method: 'DELETE',
+      body: reason ? JSON.stringify({ reason }) : undefined,
     });
   },
 
@@ -276,6 +281,7 @@ export const DemosAPI = {
     status?: string;
   }): Promise<Demo[]> => {
     const queryParams = new URLSearchParams();
+    queryParams.set('fields', 'basic');
     queryParams.append('sortBy', 'likes');
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
@@ -286,13 +292,17 @@ export const DemosAPI = {
     }
     const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
     const result = await apiRequest<Demo[]>(`/demos${query}`);
-    return result.data;
+    return result.data.map(demo => ({
+      ...demo,
+      thumbnailUrl: resolveApiUrl(demo.thumbnailUrl)
+    }));
   },
 
   // Archive (soft delete) a demo
-  archive: async (id: string): Promise<Demo> => {
+  archive: async (id: string, reason?: string): Promise<Demo> => {
     const result = await apiRequest<Demo>(`/demos/${id}`, {
       method: 'DELETE',
+      body: reason ? JSON.stringify({ reason }) : undefined,
     });
     return result.data;
   },
@@ -313,8 +323,18 @@ export const DemosAPI = {
   },
 
   // Get archived demos by user
-  getArchivedByUser: async (userId: string): Promise<Demo[]> => {
-    const result = await apiRequest<Demo[]>(`/demos/archived/by/${userId}`);
+  getArchivedByUser: async (userId: string, params?: { search?: string }): Promise<Demo[]> => {
+    const queryParams = new URLSearchParams();
+    if (params?.search) queryParams.set('search', params.search);
+    const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    const result = await apiRequest<Demo[]>(`/demos/archived/by/${userId}${query}`);
+    return result.data;
+  },
+
+  clearArchivedByUser: async (userId: string): Promise<{ count: number }> => {
+    const result = await apiRequest<{ count: number }>(`/demos/archived/by/${userId}`, {
+      method: 'DELETE',
+    });
     return result.data;
   },
 
@@ -354,22 +374,27 @@ export const CommunitiesAPI = {
     const result = await apiRequest<Community[]>(`/communities${query}`);
     return result.data;
   },
-  
-  create: async (name: string, description: string, type?: string): Promise<Community> => {
+
+  create: async (
+    name: string,
+    description: string,
+    type?: string,
+    translations?: { nameCn?: string; nameEn?: string; descriptionCn?: string; descriptionEn?: string }
+  ): Promise<Community> => {
     const result = await apiRequest<Community>('/communities', {
       method: 'POST',
-      body: JSON.stringify({ name, description, type }),
+      body: JSON.stringify({ name, description, type, ...translations }),
     });
     return result.data;
   },
-  
+
   join: async (communityId: string): Promise<Community> => {
     const result = await apiRequest<Community>(`/communities/${communityId}/join`, {
       method: 'POST',
     });
     return result.data;
   },
-  
+
   updateStatus: async (id: string, status: string): Promise<Community> => {
     const result = await apiRequest<Community>(`/communities/${id}/status`, {
       method: 'PATCH',
@@ -377,7 +402,7 @@ export const CommunitiesAPI = {
     });
     return result.data;
   },
-  
+
   joinByCode: async (code: string): Promise<Community> => {
     const result = await apiRequest<Community>('/communities/join-by-code', {
       method: 'POST',
@@ -385,25 +410,25 @@ export const CommunitiesAPI = {
     });
     return result.data;
   },
-  
+
   requestJoin: async (communityId: string): Promise<void> => {
     await apiRequest<void>(`/communities/${communityId}/join-request`, {
       method: 'POST',
     });
   },
-  
+
   manageMember: async (communityId: string, userId: string, action: 'accept' | 'kick' | 'reject_request'): Promise<void> => {
     await apiRequest<void>(`/communities/${communityId}/members/manage`, {
       method: 'POST',
       body: JSON.stringify({ userId, action }),
     });
   },
-  
+
   getMembers: async (communityId: string): Promise<{ id: string; username: string; status: string; joined_at: number }[]> => {
     const result = await apiRequest<{ id: string; username: string; status: string; joined_at: number }[]>(`/communities/${communityId}/members`);
     return result.data;
   },
-  
+
   updateCode: async (communityId: string): Promise<{ code: string }> => {
     const result = await apiRequest<{ code: string }>(`/communities/${communityId}/code`, {
       method: 'PATCH',
@@ -418,27 +443,27 @@ export const CommunitiesAPI = {
     });
     return result.data;
   },
-  
+
   delete: async (id: string): Promise<void> => {
     await apiRequest<void>(`/communities/${id}`, {
       method: 'DELETE',
     });
   },
-  
+
   banUser: async (communityId: string, userId: string, reason?: string): Promise<void> => {
     await apiRequest<void>(`/communities/${communityId}/ban`, {
       method: 'POST',
       body: JSON.stringify({ userId, reason }),
     });
   },
-  
+
   unbanUser: async (communityId: string, userId: string): Promise<void> => {
     await apiRequest<void>(`/communities/${communityId}/unban`, {
       method: 'POST',
       body: JSON.stringify({ userId }),
     });
   },
-  
+
   getBans: async (communityId: string): Promise<any[]> => {
     const result = await apiRequest<any[]>(`/communities/${communityId}/bans`);
     return result.data;
@@ -455,6 +480,24 @@ export const CommunitiesAPI = {
       method: 'PATCH',
       body: JSON.stringify({ role }),
     });
+  },
+
+  getGeneralReviewMode: async (): Promise<ReviewMode> => {
+    const result = await apiRequest<{ reviewMode: ReviewMode }>('/communities/general-review-mode');
+    return result.data.reviewMode;
+  },
+
+  updateGeneralReviewMode: async (reviewMode: ReviewMode): Promise<ReviewMode> => {
+    const result = await apiRequest<{ reviewMode: ReviewMode }>('/communities/general-review-mode', {
+      method: 'PATCH',
+      body: JSON.stringify({ reviewMode }),
+    });
+    return result.data.reviewMode;
+  },
+
+  getPersonalByUser: async (userId: string): Promise<{ community: Community; access: 'member' | 'pending' | 'none' }> => {
+    const result = await apiRequest<{ community: Community; access: 'member' | 'pending' | 'none' }>(`/communities/personal/by-user/${userId}`);
+    return result.data;
   },
 };
 
@@ -473,23 +516,23 @@ export const CategoriesAPI = {
     const result = await apiRequest<Category[]>(`/categories${query}`);
     return result.data;
   },
-  
-  create: async (name: string, parentId: string | null, communityId?: string): Promise<Category> => {
+
+  create: async (name: string, parentId: string | null, communityId?: string, icon?: string, translations?: { nameCn?: string; nameEn?: string }): Promise<Category> => {
     const result = await apiRequest<Category>('/categories', {
       method: 'POST',
-      body: JSON.stringify({ name, parentId, communityId }),
+      body: JSON.stringify({ name, parentId, communityId, icon, ...translations }),
     });
     return result.data;
   },
 
-  update: async (id: string, name: string): Promise<Category> => {
+  update: async (id: string, updates: { name?: string; nameCn?: string | null; nameEn?: string | null; icon?: string | null }): Promise<Category> => {
     const result = await apiRequest<Category>(`/categories/${id}`, {
       method: 'PUT',
-      body: JSON.stringify({ name }),
+      body: JSON.stringify(updates),
     });
     return result.data;
   },
-  
+
   delete: async (id: string): Promise<void> => {
     await apiRequest<void>(`/categories/${id}`, {
       method: 'DELETE',
@@ -517,8 +560,8 @@ export const BountiesAPI = {
     const result = await apiRequest<Bounty & { solutions?: any[] }>(`/bounties/${id}`);
     return result.data;
   },
-  
-  create: async (bounty: { 
+
+  create: async (bounty: {
     title: string;
     description: string;
     reward: string;
@@ -567,7 +610,7 @@ export const BountiesAPI = {
     });
     return result.data;
   },
-  
+
   updateStatus: async (id: string, status: string): Promise<Bounty> => {
     const result = await apiRequest<Bounty>(`/bounties/${id}/status`, {
       method: 'PATCH',
@@ -575,7 +618,7 @@ export const BountiesAPI = {
     });
     return result.data;
   },
-  
+
   delete: async (id: string): Promise<void> => {
     await apiRequest<void>(`/bounties/${id}`, {
       method: 'DELETE',
@@ -634,8 +677,9 @@ export const UsersAPI = {
     contributionPoints?: number;
     points?: number;
     favorites?: string[];
-    avatarBorder?: string;
-    avatarAccessory?: string;
+	    avatarBorder?: string;
+	    avatarImage?: string;
+	    avatarAccessory?: string;
     avatarEffect?: string;
     profileTheme?: string;
     profileBackground?: string;
@@ -661,8 +705,11 @@ export const UsersAPI = {
     return result.data;
   },
 
-  getDemos: async (id: string): Promise<Demo[]> => {
-    const result = await apiRequest<Demo[]>(`/users/${id}/demos`);
+  getDemos: async (id: string, params?: { search?: string }): Promise<Demo[]> => {
+    const queryParams = new URLSearchParams();
+    if (params?.search) queryParams.set('search', params.search);
+    const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    const result = await apiRequest<Demo[]>(`/users/${id}/demos${query}`);
     return result.data;
   },
 };

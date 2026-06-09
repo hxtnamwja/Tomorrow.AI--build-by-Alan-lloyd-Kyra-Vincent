@@ -331,6 +331,7 @@ export interface ChatOptions {
   context?: string;
   mode?: ChatMode;
   demoId?: string;
+  history?: Array<{ role: 'user' | 'model'; text: string }>;
   onChunk?: (chunk: string) => void;
 }
 
@@ -806,19 +807,24 @@ ${originalProjectContent}`;
    * Mode 'explain': Used on demo page to explain code and scientific principles
    */
   chat: async (options: ChatOptions): Promise<string> => {
-    const { prompt, context, mode = 'recommend', demoId, onChunk } = options;
+    const { prompt, context, mode = 'recommend', demoId, history, onChunk } = options;
     
     console.log('AI Service: Sending request', { mode, demoId, promptLength: prompt.length });
     
     try {
+      const token = localStorage.getItem('sci_demo_token');
       const response = await fetch(`${API_BASE_URL}/ai/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({ 
           prompt, 
           context,
           mode,
-          demoId
+          demoId,
+          history
         })
       });
       
@@ -876,34 +882,38 @@ ${originalProjectContent}`;
   /**
    * Convenience method for main page recommendations
    */
-  recommend: async (
-    prompt: string,
-    context?: string,
-    onChunk?: (chunk: string) => void
-  ): Promise<string> => {
-    return AiService.chat({
-      prompt,
-      context,
-      mode: 'recommend',
-      onChunk
-    });
-  },
+	  recommend: async (
+	    prompt: string,
+	    context?: string,
+	    onChunk?: (chunk: string) => void,
+	    history?: Array<{ role: 'user' | 'model'; text: string }>
+	  ): Promise<string> => {
+	    return AiService.chat({
+	      prompt,
+	      context,
+	      mode: 'recommend',
+	      onChunk,
+	      history
+	    });
+	  },
 
   /**
    * Convenience method for demo page explanations
    */
   explain: async (
-    prompt: string,
-    demoId: string,
-    context?: string,
-    onChunk?: (chunk: string) => void
-  ): Promise<string> => {
-    return AiService.chat({
-      prompt,
-      context,
-      mode: 'explain',
-      demoId,
-      onChunk
-    });
-  }
+	    prompt: string,
+	    demoId: string,
+	    context?: string,
+	    onChunk?: (chunk: string) => void,
+	    history?: Array<{ role: 'user' | 'model'; text: string }>
+	  ): Promise<string> => {
+	    return AiService.chat({
+	      prompt,
+	      context,
+	      mode: 'explain',
+	      demoId,
+	      onChunk,
+	      history
+	    });
+	  }
 };

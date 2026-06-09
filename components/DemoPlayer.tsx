@@ -70,6 +70,18 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, onDemoUp
     setDemoLoading(true);
   }, [demo.id, isLoadingDetails]);
 
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const previousOverscroll = document.body.style.overscrollBehavior;
+    document.body.style.overflow = 'hidden';
+    document.body.style.overscrollBehavior = 'none';
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.body.style.overscrollBehavior = previousOverscroll;
+    };
+  }, []);
+
   // Check if this is a multi-file project
   const isMultiFile = demo.projectType === 'multi-file';
   
@@ -1029,10 +1041,13 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, onDemoUp
     return () => window.removeEventListener('message', handleMessage);
   }, [onOpenDemo]);
 
-  const handleDemoAiAsk = async (query: string) => {
-      if (!query.trim()) return;
+	  const handleDemoAiAsk = async (query: string) => {
+	      if (!query.trim()) return;
+	      const historySnapshot = aiMessages
+	        .filter(message => message.text.trim())
+	        .slice(-10);
 
-      // Add user message
+	      // Add user message
       setAiMessages(prev => [...prev, { role: 'user', text: query }]);
       setAiLoading(true);
 
@@ -1046,8 +1061,8 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, onDemoUp
         // Use explain mode for demo page - sends full code to AI for analysis
         await AiService.explain(
           query,
-          demo.id,
-          `Title: ${demo.title}`,
+	          demo.id,
+	          `Title: ${demo.title}`,
           (chunk) => {
             accumulatedText += chunk;
             setAiMessages(prev => {
@@ -1058,8 +1073,9 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, onDemoUp
               }
               return [...newMessages];
             });
-          }
-        );
+	          },
+	          historySnapshot
+	        );
       } catch (error) {
         setAiMessages(prev => {
           const newMessages = [...prev];
@@ -1089,7 +1105,7 @@ export const DemoPlayer = ({ demo, currentUserId, currentUser, onClose, onDemoUp
       initial={{ opacity: 0 }} 
       animate={{ opacity: 1 }} 
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 bg-slate-900/95 backdrop-blur-md flex items-center justify-center p-0 md:p-6"
+      className="fixed inset-0 z-[100] bg-slate-950 flex items-center justify-center p-0 md:p-6 overscroll-contain"
     >
       <div className={`w-full h-full bg-slate-900 md:rounded-2xl shadow-2xl relative flex flex-col md:flex-row overflow-hidden border border-slate-800 ${isExpandedPreview ? '!flex-col' : ''}`}>
         {/* Only show close button when the preview is not expanded */}

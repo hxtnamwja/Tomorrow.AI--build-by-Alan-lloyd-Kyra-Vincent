@@ -138,6 +138,7 @@ export const ensureSiteSubAdminRole = async () => {
         points INTEGER DEFAULT 0,
         favorites TEXT DEFAULT '[]',
         avatar_border TEXT,
+        avatar_image TEXT,
         username_color TEXT,
         profile_theme TEXT,
         avatar_accessory TEXT,
@@ -153,13 +154,13 @@ export const ensureSiteSubAdminRole = async () => {
     await runQuery(`
       INSERT INTO users_new_role (
         id, username, role, created_at, is_banned, ban_reason, contact_info, payment_qr,
-        bio, password, contribution_points, points, favorites, avatar_border, username_color,
+        bio, password, contribution_points, points, favorites, avatar_border, avatar_image, username_color,
         profile_theme, avatar_accessory, avatar_effect, username_effect, profile_background,
         custom_title, unlocked_achievements, owned_items, community_points
       )
       SELECT
         id, username, role, created_at, is_banned, ban_reason, contact_info, payment_qr,
-        bio, password, contribution_points, points, favorites, avatar_border, username_color,
+        bio, password, contribution_points, points, favorites, avatar_border, avatar_image, username_color,
         profile_theme, avatar_accessory, avatar_effect, username_effect, profile_background,
         custom_title, unlocked_achievements, owned_items, community_points
       FROM users
@@ -223,11 +224,105 @@ const ensureColumn = async (table, column, definition) => {
   }
 };
 
+export const ensurePersonalCommunityForUser = async (user) => {
+  if (!user?.id) return null;
+  const existing = await getRow(
+    "SELECT * FROM communities WHERE creator_id = ? AND type = 'personal' LIMIT 1",
+    [user.id]
+  );
+  if (existing) return existing;
+
+  const id = `personal-${user.id}`;
+  const now = Date.now();
+  const code = `personal-${user.id}-${now}`.slice(0, 64);
+  await runQuery(`
+    INSERT OR IGNORE INTO communities (
+      id, name, description, creator_id, code, status, type, review_mode, personal_access_days, created_at
+    )
+    VALUES (?, ?, ?, ?, ?, 'approved', 'personal', 'post_review', 7, ?)
+  `, [
+    id,
+    `${user.username}的个人社区`,
+    '个人发布空间',
+    user.id,
+    code,
+    now
+  ]);
+  await runQuery(`
+    INSERT OR IGNORE INTO community_members (community_id, user_id, status, role, joined_at, access_expires_at)
+    VALUES (?, ?, 'member', 'admin', ?, NULL)
+  `, [id, user.id, now]);
+  return await getRow('SELECT * FROM communities WHERE id = ?', [id]);
+};
+
+const ensurePersonalCommunityTypeConstraint = async () => {
+  const schema = await getRow("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'communities'");
+  if (!schema?.sql || schema.sql.includes("'personal'")) return;
+
+  console.log('[Database] Migrating communities.type constraint for personal communities');
+  await runQuery('PRAGMA foreign_keys = OFF');
+  await runQuery('BEGIN TRANSACTION');
+  try {
+    await runQuery(`
+      CREATE TABLE communities_new_type (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        name_cn TEXT,
+        name_en TEXT,
+        description TEXT,
+        description_cn TEXT,
+        description_en TEXT,
+        creator_id TEXT NOT NULL,
+        code TEXT UNIQUE NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('pending', 'approved', 'rejected')),
+        type TEXT DEFAULT 'closed' CHECK(type IN ('open', 'closed', 'personal')),
+        review_mode TEXT DEFAULT 'pre_review' CHECK(review_mode IN ('pre_review', 'post_review')),
+        personal_access_days INTEGER DEFAULT 7,
+        created_at INTEGER NOT NULL
+      )
+    `);
+    await runQuery(`
+      INSERT INTO communities_new_type (
+        id, name, name_cn, name_en, description, description_cn, description_en,
+        creator_id, code, status, type, review_mode, personal_access_days, created_at
+      )
+      SELECT
+        id, name, name_cn, name_en, description, description_cn, description_en,
+        creator_id, code, status, type, review_mode, personal_access_days, created_at
+      FROM communities
+    `);
+    await runQuery('DROP TABLE communities');
+    await runQuery('ALTER TABLE communities_new_type RENAME TO communities');
+    await runQuery('COMMIT');
+  } catch (error) {
+    await runQuery('ROLLBACK');
+    throw error;
+  } finally {
+    await runQuery('PRAGMA foreign_keys = ON');
+  }
+};
+
 export const ensureRuntimeSchema = async () => {
   await ensureColumn('community_members', 'role', "TEXT DEFAULT 'member' CHECK(role IN ('member', 'admin'))");
+  await ensureColumn('community_members', 'access_expires_at', 'INTEGER');
   await ensureColumn('communities', 'type', "TEXT DEFAULT 'closed' CHECK(type IN ('open', 'closed'))");
+  await ensureColumn('communities', 'name_cn', 'TEXT');
+  await ensureColumn('communities', 'name_en', 'TEXT');
+  await ensureColumn('communities', 'description_cn', 'TEXT');
+  await ensureColumn('communities', 'description_en', 'TEXT');
+  await ensureColumn('communities', 'review_mode', "TEXT DEFAULT 'pre_review' CHECK(review_mode IN ('pre_review', 'post_review'))");
+  await ensureColumn('communities', 'personal_access_days', 'INTEGER DEFAULT 7');
+  await ensurePersonalCommunityTypeConstraint();
+  await ensureColumn('categories', 'icon', 'TEXT');
+  await ensureColumn('categories', 'name_cn', 'TEXT');
+  await ensureColumn('categories', 'name_en', 'TEXT');
+  await ensureColumn('users', 'avatar_image', 'TEXT');
 
   await ensureColumn('demos', 'creator_id', 'TEXT');
+  await ensureColumn('demos', 'title_cn', 'TEXT');
+  await ensureColumn('demos', 'title_en', 'TEXT');
+  await ensureColumn('demos', 'description_cn', 'TEXT');
+  await ensureColumn('demos', 'description_en', 'TEXT');
   await ensureColumn('demos', 'config', 'TEXT');
   await ensureColumn('demos', 'original_code', 'TEXT');
   await ensureColumn('demos', 'updated_at', 'INTEGER');
@@ -265,8 +360,42 @@ export const ensureRuntimeSchema = async () => {
       UNIQUE(demo_id, layer, community_id)
     )
   `);
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS feedback (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL CHECK (type IN ('demo_complaint', 'community_feedback', 'website_feedback', 'ban_appeal')),
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      layer TEXT NOT NULL CHECK (layer IN ('general', 'community')),
+      community_id TEXT,
+      demo_id TEXT,
+      demo_title TEXT,
+      community_name TEXT,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'resolved', 'dismissed')),
+      resolution TEXT,
+      created_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      reviewed_by TEXT,
+      reviewed_at INTEGER
+    )
+  `);
 
   await runQuery("UPDATE community_members SET role = 'member' WHERE role IS NULL");
   await runQuery("UPDATE communities SET type = 'closed' WHERE type IS NULL");
+  await runQuery("UPDATE communities SET review_mode = CASE WHEN type = 'personal' THEN 'post_review' ELSE 'pre_review' END WHERE review_mode IS NULL");
+  await runQuery("UPDATE communities SET personal_access_days = 7 WHERE personal_access_days IS NULL");
   await runQuery("UPDATE demos SET source_visibility = 'open' WHERE source_visibility IS NULL");
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+  await runQuery("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('general_review_mode', 'pre_review')");
+
+  const users = await getAllRows('SELECT id, username FROM users');
+  for (const user of users) {
+    await ensurePersonalCommunityForUser(user);
+  }
 };

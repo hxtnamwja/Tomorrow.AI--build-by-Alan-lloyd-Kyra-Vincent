@@ -1,8 +1,8 @@
 import { Demo, Category, Bounty, Community, User, UserStats, Announcement } from '../types';
-import { 
-  DemosAPI, 
-  CommunitiesAPI, 
-  CategoriesAPI, 
+import {
+  DemosAPI,
+  CommunitiesAPI,
+  CategoriesAPI,
   BountiesAPI,
   AuthAPI,
   UsersAPI,
@@ -46,27 +46,27 @@ const SEED_DEMOS: Demo[] = [
     const ctx = canvas.getContext('2d');
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
-    
+
     let time = 0;
     function animate() {
       ctx.fillStyle = '#0f172a';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      
+
       const cx = canvas.width / 2;
       const cy = canvas.height / 2;
-      
+
       for (let i = 0; i < 50; i++) {
         const angle = (i / 50) * Math.PI * 2;
         const r = 100 + Math.sin(time + i * 0.2) * 30;
         const x = cx + Math.cos(angle) * r;
         const y = cy + Math.sin(angle) * r;
-        
+
         ctx.beginPath();
         ctx.arc(x, y, 4, 0, Math.PI * 2);
         ctx.fillStyle = \`hsl(\${200 + i * 2}, 70%, 60%)\`;
         ctx.fill();
       }
-      
+
       time += 0.05;
       requestAnimationFrame(animate);
     }
@@ -169,10 +169,16 @@ export const StorageService = {
     }
   },
 
-  createCommunity: async (name: string, description: string, creatorId: string, type?: string): Promise<Community> => {
-    return await CommunitiesAPI.create(name, description, type);
+  createCommunity: async (
+    name: string,
+    description: string,
+    creatorId: string,
+    type?: string,
+    translations?: { nameCn?: string; nameEn?: string; descriptionCn?: string; descriptionEn?: string }
+  ): Promise<Community> => {
+    return await CommunitiesAPI.create(name, description, type, translations);
   },
-  
+
   joinOpenCommunity: async (communityId: string): Promise<Community> => {
     return await CommunitiesAPI.join(communityId);
   },
@@ -180,7 +186,7 @@ export const StorageService = {
   joinCommunityRequest: async (communityId: string, userId: string) => {
     await CommunitiesAPI.requestJoin(communityId);
   },
-  
+
   joinCommunityByCode: async (code: string, userId: string): Promise<boolean> => {
     try {
       await CommunitiesAPI.joinByCode(code);
@@ -213,15 +219,15 @@ export const StorageService = {
   deleteCommunity: async (communityId: string): Promise<void> => {
     await CommunitiesAPI.delete(communityId);
   },
-  
+
   banCommunityUser: async (communityId: string, userId: string, reason?: string): Promise<void> => {
     await CommunitiesAPI.banUser(communityId, userId, reason);
   },
-  
+
   unbanCommunityUser: async (communityId: string, userId: string): Promise<void> => {
     await CommunitiesAPI.unbanUser(communityId, userId);
   },
-  
+
   getCommunityBans: async (communityId: string): Promise<any[]> => {
     try {
       return await CommunitiesAPI.getBans(communityId);
@@ -303,8 +309,8 @@ export const StorageService = {
     await DemosAPI.updateCover(id, thumbnailUrl);
   },
 
-  deleteDemo: async (id: string) => {
-    await DemosAPI.delete(id);
+  deleteDemo: async (id: string, reason?: string) => {
+    await DemosAPI.delete(id, reason);
   },
 
   // --- Categories ---
@@ -327,11 +333,14 @@ export const StorageService = {
   },
 
   saveCategory: async (category: Category) => {
-    await CategoriesAPI.create(category.name, category.parentId, category.communityId);
+    await CategoriesAPI.create(category.name, category.parentId, category.communityId, category.icon, {
+      nameCn: category.nameCn,
+      nameEn: category.nameEn
+    });
   },
- 
-  addCategory: async (name: string, parentId: string | null, communityId?: string) => {
-    await CategoriesAPI.create(name, parentId, communityId);
+
+  addCategory: async (name: string, parentId: string | null, communityId?: string, icon?: string, translations?: { nameCn?: string; nameEn?: string }) => {
+    await CategoriesAPI.create(name, parentId, communityId, icon, translations);
   },
 
   deleteCategory: async (id: string) => {
@@ -339,8 +348,21 @@ export const StorageService = {
   },
 
   updateCategory: async (id: string, updates: Partial<Category>) => {
-    if (updates.name) {
-      await CategoriesAPI.update(id, updates.name);
+    const payload: { name?: string; nameCn?: string | null; nameEn?: string | null; icon?: string | null } = {};
+    if (updates.name !== undefined) {
+      payload.name = updates.name;
+    }
+    if (updates.icon !== undefined) {
+      payload.icon = updates.icon || null;
+    }
+    if (updates.nameCn !== undefined) {
+      payload.nameCn = updates.nameCn || null;
+    }
+    if (updates.nameEn !== undefined) {
+      payload.nameEn = updates.nameEn || null;
+    }
+    if (Object.keys(payload).length > 0) {
+      await CategoriesAPI.update(id, payload);
     }
   },
 
@@ -376,7 +398,7 @@ export const StorageService = {
       publishCategoryId: bounty.publishCategoryId
     });
   },
- 
+
   addBounty: async (bounty: Bounty | Omit<Bounty, 'id' | 'createdAt'>) => {
     let rewardPoints: number;
     if ('rewardPoints' in bounty) {
@@ -492,8 +514,8 @@ export const StorageService = {
     const user = await UsersAPI.getById(userId);
     if (user) {
       const favorites = user.favorites || [];
-      return await UsersAPI.update(userId, { 
-        favorites: favorites.filter(id => id !== demoId) 
+      return await UsersAPI.update(userId, {
+        favorites: favorites.filter(id => id !== demoId)
       });
     }
     return user;
@@ -508,9 +530,9 @@ export const StorageService = {
     }
   },
 
-  getUserDemos: async (id: string): Promise<Demo[]> => {
+  getUserDemos: async (id: string, params?: { search?: string }): Promise<Demo[]> => {
     try {
-      return await UsersAPI.getDemos(id);
+      return await UsersAPI.getDemos(id, params);
     } catch (error) {
       console.error('Error fetching user demos:', error);
       return [];
@@ -518,7 +540,7 @@ export const StorageService = {
   },
 
   // --- Announcements ---
-  getAnnouncements: async (params?: { 
+  getAnnouncements: async (params?: {
     layer?: string;
     communityId?: string;
   }): Promise<Announcement[]> => {
@@ -578,28 +600,28 @@ export const StorageService = {
   },
 
   // --- Search with tags ---
-  searchDemos: async (query: string, params?: { 
+  searchDemos: async (query: string, params?: {
     layer?: string;
     communityId?: string;
     tags?: string[];
   }): Promise<Demo[]> => {
     try {
-      const demos = await DemosAPI.getAll({ 
-        layer: params?.layer, 
+      const demos = await DemosAPI.getAll({
+        layer: params?.layer,
         communityId: params?.communityId,
         status: 'published'
       });
-      
+
       const lowerQuery = query.toLowerCase();
       return demos.filter(demo => {
-        const matchesQuery = !query || 
+        const matchesQuery = !query ||
           demo.title.toLowerCase().includes(lowerQuery) ||
           demo.description.toLowerCase().includes(lowerQuery) ||
           (demo.tags && demo.tags.some(tag => tag.toLowerCase().includes(lowerQuery)));
-        
+
         const matchesTags = !params?.tags || params.tags.length === 0 ||
           (demo.tags && params.tags.some(tag => demo.tags!.includes(tag)));
-        
+
         return matchesQuery && matchesTags;
       });
     } catch (error) {

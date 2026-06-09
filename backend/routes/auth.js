@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { runQuery, getRow } from '../database.js';
+import { runQuery, getRow, ensurePersonalCommunityForUser } from '../database.js';
 
 const router = Router();
 
@@ -21,6 +21,7 @@ router.post('/login', async (req, res) => {
     }
     
     const token = Buffer.from(JSON.stringify({ userId: user.id, role: user.role })).toString('base64');
+    await ensurePersonalCommunityForUser(user);
     
     res.json({
       code: 200,
@@ -67,6 +68,7 @@ router.post('/register', async (req, res) => {
       [id, username, 'user', Date.now(), password, 0, 100, 0, 0]);
     
     const user = { id, username, role: 'user', isBanned: 0, communityPoints: 100, points: 0, contributionPoints: 0 };
+    await ensurePersonalCommunityForUser(user);
     const token = Buffer.from(JSON.stringify({ userId: user.id, role: user.role })).toString('base64');
 
     res.json({

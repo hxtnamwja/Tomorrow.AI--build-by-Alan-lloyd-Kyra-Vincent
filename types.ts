@@ -6,6 +6,7 @@ export type UserRole = 'user' | 'general_admin' | 'site_sub_admin';
 export type Layer = 'general' | 'community';
 
 export type DemoStatus = 'published' | 'pending' | 'rejected';
+export type ReviewMode = 'pre_review' | 'post_review';
 
 // General Layer fixed subjects
 export enum Subject {
@@ -23,8 +24,11 @@ export enum Subject {
 export interface Category {
   id: string;
   name: string;
+  nameCn?: string;
+  nameEn?: string;
   parentId: string | null; // null means root level in community layer
   communityId?: string; // If null, it might be a general layer category (future proofing)
+  icon?: string;
   createdAt: number;
 }
 
@@ -85,12 +89,16 @@ export interface DemoComment {
   createdAt: number;
 }
 
-export type CommunityType = 'open' | 'closed';
+export type CommunityType = 'open' | 'closed' | 'personal';
 
 export interface Community {
   id: string;
   name: string;
+  nameCn?: string;
+  nameEn?: string;
   description: string;
+  descriptionCn?: string;
+  descriptionEn?: string;
   creatorId: string; // The user who created it (and is the admin)
   code: string; // 12-digit random code
   status: 'pending' | 'approved' | 'rejected';
@@ -98,6 +106,8 @@ export interface Community {
   pendingMembers: string[]; // List of User IDs asking to join
   adminMembers: string[]; // List of User IDs who are sub-admins
   type: CommunityType; // 'open' or 'closed'
+  reviewMode?: ReviewMode;
+  personalAccessDays?: number;
   createdAt: number;
 }
 
@@ -124,12 +134,16 @@ export interface DemoLocation {
 export interface Demo {
   id: string;
   title: string;
+  titleCn?: string;
+  titleEn?: string;
   // For General layer, categoryId is the Subject enum value. 
   // For Community layer, it's the Category.id.
   categoryId: string; 
   layer: Layer;
   communityId?: string; // Crucial for isolating community content
   description: string;
+  descriptionCn?: string;
+  descriptionEn?: string;
   code: string; // The HTML/JS source or entry file path for multi-file projects
   originalCode?: string; // Original code before AI configuration
   sourceVisibility?: 'open' | 'closed'; // Whether source code is visible to everyone or only the owner
@@ -263,6 +277,7 @@ export interface User {
   level: UserLevel;
   favorites: string[];
   avatarBorder?: string;
+  avatarImage?: string;
   usernameColor?: string;
   profileTheme?: string;
   avatarAccessory?: string;
@@ -293,6 +308,7 @@ export interface ChatMessage {
 export interface DemoPublication {
   id: string;
   demoId: string;
+  demo?: Demo;
   layer: Layer;
   communityId?: string;
   categoryId: string;

@@ -14,7 +14,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { AiChatWidget } from './components/AiChatWidget';
 import { marked } from 'marked';
 
-import { Demo, Language, UserRole, Subject, Category, Layer, Bounty, Community, User, DemoPublication, Feedback, Announcement } from './types';
+import { Demo, Language, UserRole, Subject, Category, Layer, Bounty, Community, User, DemoPublication, Feedback, Announcement, ReviewMode } from './types';
 import { DICTIONARY, getTranslation, calculateLevel, hasExclusiveAvatarBorder, canCreateCommunityWithoutApproval, isLevelAtLeast } from './constants';
 import { StorageService } from './services/storageService';
 import { AiService } from './services/aiService';
@@ -70,6 +70,15 @@ const SubjectIcon = ({ subject }: { subject: string }) => {
   }
 };
 
+const getLocalizedName = (
+  item: { name: string; nameCn?: string; nameEn?: string },
+  language: Language
+) => {
+  return language === 'cn'
+    ? (item.nameCn || item.name || item.nameEn || '')
+    : (item.nameEn || item.name || item.nameCn || '');
+};
+
 // --- Main App ---
 type AppView = 'explore' | 'upload' | 'admin' | 'bounties' | 'profile' | 'community_hall' | 'points_shop' | 'team' | 'announcements';
 const APP_VIEWS = new Set<AppView>(['explore', 'upload', 'admin', 'bounties', 'profile', 'community_hall', 'points_shop', 'team', 'announcements']);
@@ -105,12 +114,13 @@ export default function App() {
   const [view, setView] = useState<AppView>(initialUrlState.view);
   const [layer, setLayer] = useState<Layer>(initialUrlState.layer);
   const [activeCommunityId, setActiveCommunityId] = useState<string | null>(initialUrlState.communityId);
-  
+
   // Data
   const [demos, setDemos] = useState<Demo[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [bounties, setBounties] = useState<Bounty[]>([]);
   const [communities, setCommunities] = useState<Community[]>([]);
+  const [generalReviewMode, setGeneralReviewMode] = useState<ReviewMode>('pre_review');
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [dismissedAnnouncements, setDismissedAnnouncements] = useState<string[]>(() => {
@@ -126,15 +136,23 @@ export default function App() {
   const refreshSequence = useRef(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'date' | 'likes'>('date');
-  
+
   // Modal States
   const [isBountyModalOpen, setIsBountyModalOpen] = useState(false);
   const [categoryModal, setCategoryModal] = useState<{isOpen: boolean, parentId: string | null}>({ isOpen: false, parentId: null });
   const [isJoinCodeModalOpen, setIsJoinCodeModalOpen] = useState(false);
   const [joinCode, setJoinCode] = useState('');
   const [isCreateCommModalOpen, setIsCreateCommModalOpen] = useState(false);
-  const [createCommData, setCreateCommData] = useState({ name: '', desc: '', type: 'closed' as 'open' | 'closed' });
-  
+  const [createCommData, setCreateCommData] = useState({
+    name: '',
+    desc: '',
+    nameCn: '',
+    nameEn: '',
+    descCn: '',
+    descEn: '',
+    type: 'closed' as 'open' | 'closed'
+  });
+
   // Community filter state
   const [communityFilter, setCommunityFilter] = useState<'all' | 'open' | 'closed'>('all');
 
@@ -228,14 +246,14 @@ export default function App() {
   // Mobile sidebar toggle state
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isCategoryPanelExpanded, setIsCategoryPanelExpanded] = useState(false);
-  
+
   // Publication feature states
   const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
   const [publications, setPublications] = useState<DemoPublication[]>([]);
-  
+
   // Community search state
   const [communitySearch, setCommunitySearch] = useState('');
-  
+
   // Feedback states
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
   const [feedbackModalData, setFeedbackModalData] = useState<{
@@ -322,7 +340,7 @@ export default function App() {
       setView('profile');
     }
   }, [isLoggedIn, isBanned, view]);
-  
+
   // Refresh data when user logs in or role changes
   useEffect(() => {
     if (isLoggedIn) {
@@ -356,10 +374,10 @@ export default function App() {
     const now = Date.now();
     const cacheExpiry = 5 * 60 * 1000; // 5分钟缓存
     if (forceRefresh) clearCache();
-    
+
     // 检查缓存是否有效
     const isCacheValid = !forceRefresh && (now - dataCache.lastUpdated) < cacheExpiry;
-    
+
     try {
     await StorageService.initialize();
 
@@ -394,7 +412,7 @@ export default function App() {
     // Load demos based on sort preference and current layer
     let demosData: Demo[];
     const currentCachedDemos = dataCache.demos || [];
-    
+
     if (isCacheValid && currentCachedDemos.length > 0) {
       demosData = currentCachedDemos;
       console.log('[refreshAllData] Using cached demos:', demosData.length);
@@ -402,16 +420,16 @@ export default function App() {
       try {
         console.log('[refreshAllData] Fetching demos for layer:', layer, 'communityId:', activeCommunityId);
         if (sortBy === 'likes') {
-          demosData = await StorageService.getDemosSortedByLikes({ 
-            layer, 
-            communityId: layer === 'community' ? activeCommunityId : undefined 
+          demosData = await StorageService.getDemosSortedByLikes({
+            layer,
+            communityId: layer === 'community' ? activeCommunityId : undefined
           });
         } else {
           // 根据当前 layer 获取对应的 demos，包括通过发布功能添加到该 layer 的程序
           demosData = await StorageService.getDemosByLayer(layer, layer === 'community' ? activeCommunityId : undefined);
         }
         console.log('[refreshAllData] Fetched demos:', demosData.length);
-        
+
         // 如果返回空数组且之前有数据，保留旧数据（防止程序消失）
         if (demosData.length === 0 && currentCachedDemos.length > 0) {
           console.log('[refreshAllData] API returned empty demos, keeping cached data:', currentCachedDemos.length);
@@ -443,7 +461,7 @@ export default function App() {
       console.error('Failed to load announcements:', err);
     }
 
-    let categoriesData, bountiesData, communitiesData, usersData;
+    let categoriesData, bountiesData, communitiesData, usersData, generalReviewModeData: ReviewMode = generalReviewMode;
     if (isCacheValid && dataCache.categories && dataCache.bounties && dataCache.communities && dataCache.users) {
       categoriesData = dataCache.categories;
       bountiesData = dataCache.bounties;
@@ -454,26 +472,29 @@ export default function App() {
         categoriesPromise,
         StorageService.getBounties(),
         StorageService.getCommunities(),
-        StorageService.getAllPublicUsers ? StorageService.getAllPublicUsers() : Promise.resolve([])
+        StorageService.getAllPublicUsers ? StorageService.getAllPublicUsers() : Promise.resolve([]),
+        CommunitiesAPI.getGeneralReviewMode()
       ]);
       categoriesData = results[0].status === 'fulfilled' ? results[0].value : dataCache.categories;
       bountiesData = results[1].status === 'fulfilled' ? results[1].value : dataCache.bounties;
       communitiesData = results[2].status === 'fulfilled' ? results[2].value : dataCache.communities;
       usersData = results[3].status === 'fulfilled' ? results[3].value : dataCache.users;
+      generalReviewModeData = results[4].status === 'fulfilled' ? results[4].value : generalReviewMode;
       results.forEach(result => {
         if (result.status === 'rejected') console.error('[refreshAllData] Partial refresh failed:', result.reason);
       });
     }
-    
+
     const communitiesDataArray = communitiesData || [];
-    
+
     setDemos(demosData);
     setCategories(categoriesData || []);
     setBounties(bountiesData || []);
     setCommunities(communitiesDataArray);
+    setGeneralReviewMode(generalReviewModeData);
     setAllUsers(usersData || []);
     setAnnouncements(announcementsData || []);
-    
+
     // 更新缓存
     setDataCache({
       demos: demosData,
@@ -484,12 +505,12 @@ export default function App() {
       announcements: announcementsData || [],
       lastUpdated: now
     });
-    
+
     // Check if user is a community admin directly using communitiesData
     const isCommunityAdmin = communitiesDataArray.some(c =>
       c.creatorId === currentUserId || (c.adminMembers || []).includes(currentUserId)
     );
-    
+
     // Load pending publications if user is admin
     if (isLoggedIn && (role === 'general_admin' || role === 'site_sub_admin' || isCommunityAdmin)) {
       try {
@@ -499,13 +520,13 @@ export default function App() {
         console.error('Failed to load publications:', err);
       }
     }
-    
+
     // Load feedback data
     if (isLoggedIn) {
       try {
         const myFb = await FeedbackAPI.getMy();
         setMyFeedback(myFb);
-        
+
         if (role === 'general_admin' || role === 'site_sub_admin' || isCommunityAdmin) {
           const pendingFb = await FeedbackAPI.getPending();
           setPendingFeedback(pendingFb);
@@ -526,7 +547,7 @@ export default function App() {
       console.error('[handlePublishToCommunity] No selected demo');
       return;
     }
-    
+
     console.log('[handlePublishToCommunity] Starting publication:', {
       demoId: selectedDemo.id,
       demoTitle: selectedDemo.title,
@@ -538,7 +559,7 @@ export default function App() {
       currentUser: currentUser?.id,
       currentUsername: currentUser?.username
     });
-    
+
     try {
       const result = await PublicationsAPI.create({
         demoId: selectedDemo.id,
@@ -548,7 +569,7 @@ export default function App() {
       });
       console.log('[handlePublishToCommunity] Success:', result);
       alert('发布申请已提交，请等待审批');
-      
+
       // 延迟刷新，给数据库时间更新
       setTimeout(async () => {
         console.log('[handlePublishToCommunity] Refreshing data...');
@@ -627,17 +648,13 @@ export default function App() {
 
   // Reload demos when layer or activeCommunityId changes
   useEffect(() => {
-    if (isLoggedIn) {
-      console.log('[useEffect] Layer or community changed, refreshing data:', { layer, activeCommunityId });
-      refreshAllData(true);
-    }
+    console.log('[useEffect] Layer or community changed, refreshing data:', { layer, activeCommunityId });
+    refreshAllData(true);
   }, [layer, activeCommunityId]);
 
   // Reload demos when sort preference changes
   useEffect(() => {
-    if (isLoggedIn) {
-      refreshAllData();
-    }
+    refreshAllData(true);
   }, [sortBy]);
 
   // Clear community search when leaving community hall
@@ -657,14 +674,14 @@ export default function App() {
       } else {
         result = await StorageService.login(username, password);
       }
-      
+
       setRole(result.user.role as UserRole);
       setIsLoggedIn(true);
       setShowAuthPage(false);
       setCurrentUserId(result.user.id);
       setIsBanned(result.user.isBanned || 0);
       setBanReason(result.user.banReason);
-      
+
       // Redirect based on role and ban status
       if (result.user.role === 'general_admin' || result.user.role === 'site_sub_admin') {
         setView('admin');
@@ -677,7 +694,7 @@ export default function App() {
         setView('explore');
         setLayer('general');
       }
-      
+
       await refreshAllData();
     } catch (error: any) {
       console.error('Auth failed:', error);
@@ -710,7 +727,7 @@ export default function App() {
     console.log('currentUserId:', currentUserId);
     console.log('role:', role);
     console.log('communities:', communities);
-    
+
     if (demo.layer === 'community' && demo.communityId) {
       const community = communities.find(c => c.id === demo.communityId);
       console.log('community:', community);
@@ -746,7 +763,7 @@ export default function App() {
   };
 
   // --- Derived State for Communities ---
-  
+
   const isCommunityMember = (communityId: string): boolean => {
       if (role === 'general_admin') return true; // General admin is automatically member of all communities
       const community = communities.find(c => c.id === communityId);
@@ -755,10 +772,14 @@ export default function App() {
   };
 
   const myCommunities = useMemo(() => {
+      const sortByMembers = (items: Community[]) => [...items].sort((a, b) => {
+          const memberDiff = (b.members?.length || 0) - (a.members?.length || 0);
+          return memberDiff || b.createdAt - a.createdAt;
+      });
       if (role === 'general_admin') {
-          return communities.filter(c => c.status === 'approved');
+          return sortByMembers(communities.filter(c => c.status === 'approved'));
       }
-      return communities.filter(c => c.members.includes(currentUserId) && c.status === 'approved');
+      return sortByMembers(communities.filter(c => c.members.includes(currentUserId) && c.status === 'approved'));
   }, [communities, currentUserId, role]);
 
   const userCreatedCommunities = useMemo(() => {
@@ -779,27 +800,33 @@ export default function App() {
   const filteredCommunities = useMemo(() => {
       const approvedCommunities = communities.filter(c => c.status === 'approved');
       let filtered = approvedCommunities;
-      
+
       // Filter by type
       if (communityFilter !== 'all') {
           filtered = filtered.filter(c => c.type === communityFilter);
       }
-      
+
       // Filter by search
       if (communitySearch.trim()) {
           const searchLower = communitySearch.toLowerCase();
-          filtered = filtered.filter(c => 
-              c.name.toLowerCase().includes(searchLower) || 
+          filtered = filtered.filter(c =>
+              c.name.toLowerCase().includes(searchLower) ||
               c.description.toLowerCase().includes(searchLower)
           );
       }
-      
-      return filtered;
-  }, [communities, communitySearch, communityFilter]);
+
+      return [...filtered].sort((a, b) => {
+          const aPersonalOwned = a.type === 'personal' && a.creatorId === currentUserId;
+          const bPersonalOwned = b.type === 'personal' && b.creatorId === currentUserId;
+          if (aPersonalOwned !== bPersonalOwned) return aPersonalOwned ? -1 : 1;
+          const memberDiff = (b.members?.length || 0) - (a.members?.length || 0);
+          return memberDiff || b.createdAt - a.createdAt;
+      });
+  }, [communities, communitySearch, communityFilter, currentUserId]);
 
   // --- Filtering Logic ---
 
-  const rootCategories = useMemo(() => {
+	  const rootCategories = useMemo(() => {
       return categories.filter(c => {
           // If in Community Layer, only show categories for this community
           if(layer === 'community') {
@@ -807,7 +834,23 @@ export default function App() {
           }
           return c.parentId === null;
       });
-  }, [categories, layer, activeCommunityId]);
+	  }, [categories, layer, activeCommunityId]);
+
+  const publicRootCategories = useMemo(() => {
+    const fixedOrder = ['cat-physics', 'cat-chemistry', 'cat-mathematics', 'cat-biology', 'cat-computer-science', 'cat-astronomy', 'cat-earth-science', 'cat-creative-tools'];
+    return categories
+      .filter(c => !c.communityId && !c.parentId)
+      .sort((a, b) => {
+        const aIndex = fixedOrder.indexOf(a.id);
+        const bIndex = fixedOrder.indexOf(b.id);
+        if (aIndex !== -1 || bIndex !== -1) {
+          if (aIndex === -1) return 1;
+          if (bIndex === -1) return -1;
+          return aIndex - bIndex;
+        }
+        return a.createdAt - b.createdAt;
+      });
+  }, [categories]);
 
   const getCategoryAndChildrenIds = (rootId: string): string[] => {
     const ids = [rootId];
@@ -821,14 +864,14 @@ export default function App() {
   const filteredDemos = useMemo(() => {
     console.log('[filteredDemos] Filtering demos:', demos.length, 'layer:', layer, 'activeCommunityId:', activeCommunityId);
     console.log('[filteredDemos] Demo communityIds:', demos.map(d => ({ id: d.id, title: d.title, communityId: d.communityId, layer: d.layer, status: d.status })));
-    
+
     return demos.filter(d => {
       // Layer Check
       if (d.layer !== layer) {
         console.log('[filteredDemos] Layer mismatch:', d.id, d.layer, '!==', layer);
         return false;
       }
-      
+
       // Community Isolation
       if (layer === 'community') {
           if (d.communityId !== activeCommunityId) {
@@ -850,10 +893,10 @@ export default function App() {
           matchCategory = validIds.includes(d.categoryId);
         }
       }
-      const matchSearch = d.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+      const matchSearch = d.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           d.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           (d.tags && d.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase())));
-      
+
       // Admin sees pending, users see published + their own pending demos
       if (view === 'explore') {
           const isVisible = d.status === 'published' || (d.author === currentUserId && d.status === 'pending');
@@ -869,12 +912,12 @@ export default function App() {
   const pendingDemos = useMemo(() => {
     return demos.filter(d => {
       if (d.status !== 'pending') return false;
-      
+
       // Skip demos that are part of a bounty (they should be reviewed by bounty creator first)
       if (d.bountyId) return false;
-      
+
       if (role === 'general_admin' || role === 'site_sub_admin') return true;
-      
+
       // Community Admin Review
       if (d.layer === 'community' && d.communityId === activeCommunityId && isCurrentCommunityAdmin) return true;
 
@@ -887,16 +930,16 @@ export default function App() {
     console.log('=== handleUpload ===');
     console.log('newDemo:', newDemo);
     console.log('bountyContext:', bountyContext);
-    
+
     let demoToUse = newDemo;
-    
+
     // For multi-file projects, the demo is already created on the backend
     // For single-file projects, we need to save it
     if (newDemo.projectType !== 'multi-file') {
       demoToUse = await StorageService.saveDemo(newDemo);
       console.log('Demo saved with real ID:', demoToUse.id);
     }
-    
+
     // If this is for a bounty, submit it as a solution
     if (bountyContext) {
       try {
@@ -907,12 +950,14 @@ export default function App() {
         console.error('Error submitting bounty solution:', error);
       }
     }
-    
+
     await refreshAllData(true);
     setView('explore');
     setBountyContext(null);
     setQuickUploadContext(null);
-    alert(t('uploadSuccessMsg'));
+    alert(demoToUse.status === 'published'
+      ? '发布成功！当前目标采用即发后巡，程序已经上线。'
+      : t('uploadSuccessMsg'));
   };
 
   const openQuickUpload = () => {
@@ -941,9 +986,9 @@ export default function App() {
     setCategoryModal({ isOpen: true, parentId });
   };
 
-  const handleAddCategory = async (name: string, parentId: string | null) => {
+  const handleAddCategory = async (name: string, parentId: string | null, icon?: string, translations?: { nameCn?: string; nameEn?: string }) => {
     const commId = layer === 'community' ? activeCommunityId : undefined;
-    await StorageService.addCategory(name, parentId, commId || undefined);
+    await StorageService.addCategory(name, parentId, commId || undefined, layer === 'general' ? icon : undefined, translations);
     await refreshAllData(true);
   };
 
@@ -955,8 +1000,12 @@ export default function App() {
     }
   };
 
-  const handleEditCategory = async (id: string, newName: string) => {
-    await StorageService.updateCategory(id, { name: newName });
+  const handleEditCategory = async (id: string, newName: string, icon?: string, translations?: { nameCn?: string | null; nameEn?: string | null }) => {
+    await StorageService.updateCategory(id, {
+      name: newName,
+      ...(translations ? translations : {}),
+      ...(icon !== undefined ? { icon } : {})
+    });
     await refreshAllData(true);
   };
 
@@ -996,7 +1045,22 @@ export default function App() {
 
   const handleDeleteDemo = async (id: string) => {
     if(window.confirm(t('confirmDeleteDemo'))) {
-      await StorageService.deleteDemo(id);
+      const demo = demos.find(item => item.id === id);
+      const isOwner = demo?.creatorId === currentUserId || demo?.author === currentUserId || demo?.author === currentUser?.username;
+      const isAdminDelete = !!demo && !isOwner && (
+        role === 'general_admin' ||
+        role === 'site_sub_admin' ||
+        (demo.layer === 'community' && demo.communityId && isCurrentCommunityAdmin)
+      );
+      let reason: string | undefined;
+      if (isAdminDelete) {
+        reason = window.prompt('请填写下架说明。该说明会发送到作者的客服中心。')?.trim();
+        if (!reason) {
+          alert('下架他人程序必须填写说明');
+          return;
+        }
+      }
+      await StorageService.deleteDemo(id, reason);
       setSelectedDemo(null);
       await refreshAllData(true);
     }
@@ -1009,8 +1073,15 @@ export default function App() {
         requireLogin('创建社区仅在登录后开放。登录后即可申请创建自己的社区。');
         return;
       }
-      await StorageService.createCommunity(createCommData.name, createCommData.desc, currentUserId, createCommData.type);
-      setCreateCommData({name: '', desc: '', type: 'closed'});
+      const fallbackName = createCommData.name.trim() || createCommData.nameCn.trim() || createCommData.nameEn.trim();
+      const fallbackDesc = createCommData.desc.trim() || createCommData.descCn.trim() || createCommData.descEn.trim();
+      await StorageService.createCommunity(fallbackName, fallbackDesc, currentUserId, createCommData.type, {
+        nameCn: createCommData.nameCn.trim() || undefined,
+        nameEn: createCommData.nameEn.trim() || undefined,
+        descriptionCn: createCommData.descCn.trim() || undefined,
+        descriptionEn: createCommData.descEn.trim() || undefined
+      });
+      setCreateCommData({ name: '', desc: '', nameCn: '', nameEn: '', descCn: '', descEn: '', type: 'closed' });
       setIsCreateCommModalOpen(false);
       await refreshAllData(true);
       alert("Community request sent for approval.");
@@ -1115,6 +1186,17 @@ export default function App() {
       }
   };
 
+  const handleUpdateGeneralReviewMode = async (reviewMode: ReviewMode) => {
+      try {
+          const nextMode = await CommunitiesAPI.updateGeneralReviewMode(reviewMode);
+          setGeneralReviewMode(nextMode);
+          await refreshAllData(true);
+      } catch (error: any) {
+          console.error('Update general review mode error:', error);
+          alert(`更新审核策略失败: ${error.message}`);
+      }
+  };
+
 
 
 
@@ -1169,7 +1251,7 @@ export default function App() {
         </div>
       );
     }
-    
+
     return (
       <>
         <div className={`px-4 shrink-0 overflow-hidden transition-all duration-300 ${layer === 'community' && isCategoryPanelExpanded ? 'max-h-28 mb-2' : 'max-h-[420px] mb-6'}`}>
@@ -1213,7 +1295,7 @@ export default function App() {
 
                           const userLevel = currentUser ? calculateLevel(currentUser.contributionPoints || 0, currentUser.role === 'general_admin') : 'learner';
                           const canCreate = isLevelAtLeast(userLevel, 'researcher1');
-                          
+
                           if (!canCreate) {
                               return (
                                   <div className="w-full mb-2 border border-dashed border-slate-300 text-slate-400 rounded-xl py-2.5 text-xs font-bold flex items-center justify-center gap-2 cursor-not-allowed bg-slate-50">
@@ -1222,7 +1304,7 @@ export default function App() {
                                   </div>
                               );
                           }
-                          
+
                           return (
                               <button
                                   onClick={() => setIsCreateCommModalOpen(true)}
@@ -1238,16 +1320,16 @@ export default function App() {
                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t('myCommunities')}</label>
                   </div>
                   <div className="flex flex-col gap-1 max-h-48 overflow-y-auto pr-1">
-                      <button 
+                      <button
                           onClick={() => { setActiveCommunityId(null); setView('community_hall'); }}
                           className={`w-full text-left px-3 py-2.5 text-sm rounded-xl flex items-center gap-3 transition-all ${!activeCommunityId && view === 'community_hall' ? 'bg-indigo-50 text-indigo-700 font-bold shadow-sm ring-1 ring-indigo-200' : 'text-slate-600 hover:bg-slate-50'}`}
                       >
                           <Building2 className={`w-4 h-4 ${!activeCommunityId && view === 'community_hall' ? 'text-indigo-600' : 'text-slate-400'}`} />
                           {t('communityHall')}
                       </button>
-                      
+
                       {myCommunities.map(c => (
-                          <button 
+                          <button
                               key={c.id}
                               onClick={() => { setActiveCommunityId(c.id); setView('explore'); }}
                               className={`w-full text-left px-3 py-2.5 text-sm rounded-xl truncate transition-all flex items-center gap-2 ${activeCommunityId === c.id ? 'bg-indigo-50 text-indigo-700 font-bold shadow-sm ring-1 ring-indigo-200' : 'text-slate-600 hover:bg-slate-50'}`}
@@ -1290,8 +1372,8 @@ export default function App() {
             <div className="flex items-center justify-between mb-4 px-2 pb-2 shrink-0">
                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">{t('subjects')}</h3>
                {activeCommunityId && isCurrentCommunityAdmin && (
-                 <button 
-                   onClick={() => openCategoryModal(null)} 
+                 <button
+                   onClick={() => openCategoryModal(null)}
                    className="text-xs bg-white text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 transition-all shadow-sm"
                    title={t('addCategory')}
                  >
@@ -1299,11 +1381,11 @@ export default function App() {
                  </button>
                )}
             </div>
-            
+
             {/* 可滚动的目录内容 */}
             <div className="flex-1 overflow-auto custom-scrollbar -mx-4 px-4">
               <nav className="space-y-1 pb-10">
-                <button 
+                <button
                   onClick={() => handleCategorySelect('All')}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-all ${activeCategory === 'All' ? 'bg-indigo-50 text-indigo-700 shadow-sm ring-1 ring-indigo-200' : 'text-slate-600 hover:bg-slate-50'}`}
                 >
@@ -1315,7 +1397,7 @@ export default function App() {
                      <div className="text-xs text-slate-400 px-4 py-2 italic">{t('noCategoriesYet')}</div>
                    )}
                   {rootCategories.map(cat => (
-                    <CategoryTreeNode 
+                    <CategoryTreeNode
                       key={cat.id}
                       category={cat}
                       allCategories={categories}
@@ -1324,8 +1406,9 @@ export default function App() {
                       onAddSub={openCategoryModal}
                       onEdit={handleEditCategory}
                       onDelete={handleDeleteCategory}
-                      role={isCurrentCommunityAdmin ? 'community_admin' : 'user'}
-                      t={t}
+	                      role={isCurrentCommunityAdmin ? 'community_admin' : 'user'}
+	                      language={language}
+	                      t={t}
                     />
                   ))}
                 </div>
@@ -1336,14 +1419,23 @@ export default function App() {
           /* 通用层 - 可滚动目录 */
           <div className="flex-1 flex flex-col min-h-0 px-4 border-t border-slate-100/80 pt-6">
             {/* 固定的学科分类标题 - 不随滚动 */}
-            <div className="flex items-center justify-between mb-4 px-2 pb-2 shrink-0">
-               <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">{t('subjects')}</h3>
-            </div>
-            
+	            <div className="flex items-center justify-between mb-4 px-2 pb-2 shrink-0">
+	               <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">{t('subjects')}</h3>
+	               {role === 'general_admin' && (
+	                 <button
+	                   onClick={() => openCategoryModal(null)}
+	                   className="text-xs bg-white text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 transition-all shadow-sm"
+	                   title={t('addCategory')}
+	                 >
+	                   <Plus className="w-3.5 h-3.5" />
+	                 </button>
+	               )}
+	            </div>
+
             {/* 可滚动的目录内容 */}
             <div className="flex-1 overflow-y-auto custom-scrollbar -mx-4 px-4">
               <nav className="space-y-1 pb-10">
-                <button 
+                <button
                   onClick={() => handleCategorySelect('All')}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-all ${activeCategory === 'All' ? 'bg-indigo-50 text-indigo-700 shadow-sm ring-1 ring-indigo-200' : 'text-slate-600 hover:bg-slate-50'}`}
                 >
@@ -1351,15 +1443,10 @@ export default function App() {
                   {t('all')}
                 </button>
 
-                {categories
-                  .filter(c => !c.communityId && !c.parentId)
-                  .sort((a, b) => {
-                    const order = ['cat-physics', 'cat-chemistry', 'cat-mathematics', 'cat-biology', 'cat-computer-science', 'cat-astronomy', 'cat-earth-science', 'cat-creative-tools'];
-                    return order.indexOf(a.id) - order.indexOf(b.id);
-                  })
-                  .map(cat => {
-                    const subjectName = CATEGORY_ID_TO_SUBJECT[cat.id] || cat.name;
-                    const translationKey: any = {
+	                <div className="mt-2 space-y-1">
+	                  {publicRootCategories.map(cat => {
+	                    const subjectName = CATEGORY_ID_TO_SUBJECT[cat.id] || cat.name;
+	                    const translationKey: any = {
                       'Physics': 'physics',
                       'Chemistry': 'chemistry',
                       'Mathematics': 'mathematics',
@@ -1369,20 +1456,37 @@ export default function App() {
                       'Earth Science': 'earthScience',
                       'Creative Tools': 'creativeTools'
                     }[subjectName] || subjectName.toLowerCase();
-                    
-                    return (
-                      <button 
-                        key={cat.id}
-                        onClick={() => handleCategorySelect(cat.id)}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-all ${activeCategory === cat.id ? 'bg-indigo-50 text-indigo-700 shadow-sm ring-1 ring-indigo-200' : 'text-slate-600 hover:bg-slate-50'}`}
-                      >
-                        <SubjectIcon subject={cat.id} />
-                        {t(translationKey)}
-                      </button>
-                    );
-                  })
-                }
-              </nav>
+	                    const hasBuiltInSubject = !!CATEGORY_ID_TO_SUBJECT[cat.id];
+	                    return hasBuiltInSubject && role !== 'general_admin' ? (
+	                      <button
+	                        key={cat.id}
+	                        onClick={() => handleCategorySelect(cat.id)}
+	                        className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-all ${activeCategory === cat.id ? 'bg-indigo-50 text-indigo-700 shadow-sm ring-1 ring-indigo-200' : 'text-slate-600 hover:bg-slate-50'}`}
+	                      >
+	                        <SubjectIcon subject={cat.id} />
+	                        {t(translationKey)}
+	                      </button>
+	                    ) : (
+	                      <CategoryTreeNode
+	                        key={cat.id}
+	                        category={cat}
+	                        displayName={hasBuiltInSubject && !cat.nameCn && !cat.nameEn ? t(translationKey) : getLocalizedName(cat, language)}
+	                        allCategories={categories.filter(item => !item.communityId)}
+	                        activeId={activeCategory}
+	                        onSelect={handleCategorySelect}
+	                        onAddSub={openCategoryModal}
+	                        onEdit={handleEditCategory}
+	                        onDelete={handleDeleteCategory}
+	                        role={role === 'general_admin' ? 'general_admin' : 'user'}
+	                        enableIconEditing={role === 'general_admin'}
+	                        language={language}
+	                        t={t}
+	                      />
+	                    );
+	                  })
+	                }
+	                </div>
+	              </nav>
             </div>
           </div>
         )}
@@ -1458,7 +1562,7 @@ export default function App() {
               </span>
             </div>
           </div>
-          
+
           <div className="flex items-center gap-2">
             <button
               onClick={() => setLanguage(l => l === 'en' ? 'cn' : 'en')}
@@ -1466,7 +1570,7 @@ export default function App() {
             >
               {language === 'en' ? 'CN' : 'EN'}
             </button>
-            
+
             <div className="relative ml-2 shrink-0">
               <button
                 onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
@@ -1483,8 +1587,8 @@ export default function App() {
                       <p className="text-xs text-slate-400 uppercase tracking-wider font-bold">{t('accessLevel')}</p>
                       <p className="text-sm font-bold text-slate-700 truncate">{t('roleUser')}</p>
                    </div>
-                   
-                   <button 
+
+                   <button
                       onClick={() => {
                         handleLogout();
                         setIsProfileMenuOpen(false);
@@ -1501,7 +1605,7 @@ export default function App() {
         </header>
       );
     }
-    
+
     return (
     <header className="fixed top-0 left-0 right-0 h-16 glass-panel border-b border-white/50 z-30 flex items-center justify-between px-4 md:px-6 shadow-sm">
       <div className="flex items-center gap-3 md:gap-12">
@@ -1655,16 +1759,6 @@ export default function App() {
           <span className="hidden sm:inline">{theme === 'light' ? t('darkMode') : t('lightMode')}</span>
         </button>
 
-        {/* Website Feedback Button */}
-        <button
-          onClick={() => handleOpenFeedback('website_feedback', 'general')}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 border border-blue-200 hover:shadow-md transition-all shrink-0"
-          title={t('submitWebsiteFeedback')}
-        >
-          <MessageSquare className="w-4 h-4" />
-          <span className="hidden sm:inline">反馈</span>
-        </button>
-
         {/* Help Guide Button */}
         <div className="relative shrink-0">
           <button
@@ -1695,6 +1789,16 @@ export default function App() {
             </div>
           )}
         </div>
+
+        {/* Website Feedback Button */}
+        <button
+          onClick={() => handleOpenFeedback('website_feedback', 'general')}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 border border-blue-200 hover:shadow-md transition-all shrink-0"
+          title={t('submitWebsiteFeedback')}
+        >
+          <MessageSquare className="w-4 h-4" />
+          <span className="hidden sm:inline">反馈</span>
+        </button>
       </div>
 
       {!isLoggedIn ? (
@@ -1730,9 +1834,9 @@ export default function App() {
                   <p className="text-xs text-slate-400 uppercase tracking-wider font-bold">{t('accessLevel')}</p>
                   <p className="text-sm font-bold text-slate-700 truncate">{role === 'user' ? t('roleUser') : role === 'site_sub_admin' ? '分管理员' : t('roleGeneralAdmin')}</p>
                </div>
-               
+
                {(role === 'general_admin' || role === 'site_sub_admin') && (
-                 <button 
+                 <button
                     onClick={() => {
                       setView('admin');
                       setIsProfileMenuOpen(false);
@@ -1743,10 +1847,10 @@ export default function App() {
                     {t('adminDashboard')}
                  </button>
                )}
-               
 
-               
-               <button 
+
+
+               <button
                   onClick={() => {
                     setViewingUserId(null);
                     setView('profile');
@@ -1759,8 +1863,8 @@ export default function App() {
                </button>
 
                <div className="h-px bg-slate-100 my-1"></div>
-               
-               <button 
+
+               <button
                   onClick={() => {
                     handleLogout();
                     setIsProfileMenuOpen(false);
@@ -1785,6 +1889,12 @@ export default function App() {
 
     return (
       <div className="space-y-6 pb-20">
+        {layer === 'general' && (
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100 text-xs font-bold">
+            <ShieldCheck className="w-3.5 h-3.5" />
+            通用知识库：{generalReviewMode === 'post_review' ? '即发后巡' : '先审后发'}
+          </div>
+        )}
         {activeCategory !== 'All' && (
           <div className="flex items-center justify-between gap-4 px-4 py-3 bg-indigo-50 border border-indigo-100 rounded-xl">
             <div className="min-w-0">
@@ -1854,8 +1964,8 @@ export default function App() {
           key={demo.id}
           className="group glass-card rounded-2xl overflow-hidden hover:shadow-2xl hover:shadow-indigo-500/10 transition-all duration-500 flex flex-col relative isolation-isolate hover:-translate-y-1"
         >
-          <div 
-             className="absolute inset-0 z-0 cursor-pointer" 
+          <div
+             className="absolute inset-0 z-0 cursor-pointer"
              onClick={() => handleOpenDemoWithPermission(demo)}
           />
 
@@ -1896,7 +2006,7 @@ export default function App() {
                     return t(translationKey);
                   }
                 }
-                
+
                 // 尝试直接使用demo.categoryId作为主题名称获取翻译
                 const directTranslationKey = {
                   'Physics': 'physics',
@@ -1911,7 +2021,7 @@ export default function App() {
                 if (directTranslationKey) {
                   return t(directTranslationKey);
                 }
-                
+
                 // 如果demo.categoryId是分类ID，尝试获取对应的主题名称
                 const category = categories.find(c => c.id === demo.categoryId);
                 if (category) {
@@ -1931,7 +2041,7 @@ export default function App() {
                   }
                   return category.name;
                 }
-                
+
                 // 最后返回原始值
                 return demo.categoryId;
               })() : communities.find(c => c.id === demo.communityId)?.name || t('layerCommunity')}
@@ -1947,13 +2057,13 @@ export default function App() {
                </div>
             )}
           </div>
-          
+
           <div className="p-5 flex-1 flex flex-col pointer-events-none bg-white">
             <h3 className="text-lg font-bold text-slate-800 mb-2 line-clamp-1 group-hover:text-indigo-600 transition-colors">{demo.title}</h3>
             {demo.tags && demo.tags.length > 0 && (
               <div className="mb-3">
-                <TagDisplay 
-                  tags={demo.tags} 
+                <TagDisplay
+                  tags={demo.tags}
                   lang={language}
                   onTagClick={(tagId) => {
                     setSearchQuery(tagId);
@@ -1964,7 +2074,7 @@ export default function App() {
             <p className="text-sm text-slate-500 mb-6 line-clamp-2 flex-1 leading-relaxed">{demo.description}</p>
 
             <div className="flex items-center justify-between pt-4 border-t border-slate-50">
-               <div 
+               <div
                  className="flex items-center gap-2.5 pointer-events-auto cursor-pointer hover:opacity-80 transition-opacity"
                  onClick={(e) => {
                    e.stopPropagation();
@@ -1991,9 +2101,9 @@ export default function App() {
                    } else {
                      authorUser = allUsers.find(u => u.username === demo.author);
                    }
-                   
+
                    if (!authorUser?.level) return null;
-                   
+
                    const getLevelDisplay = (level: string) => {
                      switch(level) {
                        case 'learner':
@@ -2010,10 +2120,10 @@ export default function App() {
                          return null;
                      }
                    };
-                   
+
                    const levelDisplay = getLevelDisplay(authorUser.level);
                    if (!levelDisplay) return null;
-                   
+
                    return (
                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${levelDisplay.color} flex items-center gap-0.5`}>
                        <span>{levelDisplay.icon}</span>
@@ -2037,22 +2147,22 @@ export default function App() {
 
           {canDelete && (
             <div className="absolute top-14 right-4 z-50 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 translate-x-4 group-hover:translate-x-0">
-               <button 
+               <button
                  type="button"
-                 onClick={(e) => { 
+                 onClick={(e) => {
                     e.stopPropagation();
-                    handleEditCoverClick(demo.id); 
+                    handleEditCoverClick(demo.id);
                  }}
                  className="p-2 bg-white text-slate-600 rounded-full hover:text-indigo-600 hover:shadow-lg transition-all cursor-pointer shadow-md pointer-events-auto border border-slate-100"
                  title={t('editCover')}
                >
                  <Camera className="w-4 h-4" />
                </button>
-               <button 
+               <button
                  type="button"
-                 onClick={(e) => { 
+                 onClick={(e) => {
                     e.stopPropagation();
-                    handleDeleteDemo(demo.id); 
+                    handleDeleteDemo(demo.id);
                  }}
                  className="p-2 bg-white text-slate-600 rounded-full hover:text-red-500 hover:shadow-lg transition-all cursor-pointer shadow-md pointer-events-auto border border-slate-100"
                  title={t('delete')}
@@ -2064,7 +2174,7 @@ export default function App() {
         </motion.div>
         );
       })}
-      
+
       {filteredDemos.length === 0 && !demosLoading && (
         <div className="col-span-full py-32 text-center">
           <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
@@ -2095,8 +2205,8 @@ export default function App() {
                         <button
                             onClick={() => setCommunityFilter('all')}
                             className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${
-                                communityFilter === 'all' 
-                                    ? 'bg-white text-slate-800 shadow-sm' 
+                                communityFilter === 'all'
+                                    ? 'bg-white text-slate-800 shadow-sm'
                                     : 'text-slate-500 hover:text-slate-700'
                             }`}
                         >
@@ -2105,8 +2215,8 @@ export default function App() {
                         <button
                             onClick={() => setCommunityFilter('open')}
                             className={`px-5 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${
-                                communityFilter === 'open' 
-                                    ? 'bg-emerald-500 text-white shadow-sm' 
+                                communityFilter === 'open'
+                                    ? 'bg-emerald-500 text-white shadow-sm'
                                     : 'text-slate-500 hover:text-slate-700'
                             }`}
                         >
@@ -2115,8 +2225,8 @@ export default function App() {
                         <button
                             onClick={() => setCommunityFilter('closed')}
                             className={`px-5 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${
-                                communityFilter === 'closed' 
-                                    ? 'bg-indigo-500 text-white shadow-sm' 
+                                communityFilter === 'closed'
+                                    ? 'bg-indigo-500 text-white shadow-sm'
                                     : 'text-slate-500 hover:text-slate-700'
                             }`}
                         >
@@ -2134,7 +2244,7 @@ export default function App() {
                                 className="pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 w-full lg:w-64"
                             />
                         </div>
-                        <button 
+                        <button
                           onClick={() => {
                             if (!isLoggedIn) {
                               requireLogin('加入社区仅在登录后开放。登录后即可申请加入社区或使用邀请码加入。');
@@ -2167,42 +2277,115 @@ export default function App() {
                       const isCommunityAdmin = role === 'general_admin' || c.creatorId === currentUserId;
                       const hasPendingRequests = c.pendingMembers.length > 0;
                       const isOpenCommunity = c.type === 'open';
+                      const isPersonalCommunity = c.type === 'personal';
+                      const cardTone = isOpenCommunity
+                        ? {
+                            icon: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+                            status: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                            action: 'bg-emerald-600 text-white hover:bg-emerald-700'
+                          }
+                        : {
+                            icon: 'bg-indigo-50 text-indigo-700 border-indigo-100',
+                            status: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+                            action: 'bg-indigo-600 text-white hover:bg-indigo-700'
+                          };
+                      const reviewModeLabel = (c.reviewMode || (isPersonalCommunity ? 'post_review' : 'pre_review')) === 'post_review' ? '即发后巡' : '先审后发';
+                      const reviewModeHint = reviewModeLabel === '即发后巡'
+                        ? '提交内容后会立即上线，管理员后续巡查，必要时会填写说明并下架。'
+                        : '提交内容会先进入审核，管理员通过后才正式展示。';
+                      const typeHint = isPersonalCommunity
+                        ? '个人社区只在拥有者自己的社区大厅可见。其他用户需要从头像进入个人主页申请限时访问。'
+                        : isOpenCommunity
+                          ? '开放社区允许登录用户直接加入。'
+                          : '封闭社区需要提交加入申请，管理员同意后才能进入。';
+
+                      if (isPersonalCommunity) {
+                        return (
+                          <div key={c.id} className="relative overflow-hidden rounded-3xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-fuchsia-50 p-7 shadow-xl shadow-violet-100/60 transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl hover:shadow-violet-200/60">
+                            <div className="absolute -right-16 -top-16 w-40 h-40 rounded-full bg-violet-200/30 blur-3xl" />
+                            <div className="absolute -bottom-16 left-8 w-36 h-36 rounded-full bg-fuchsia-200/25 blur-3xl" />
+                            <div className="relative flex h-full min-h-[310px] flex-col">
+                              <div className="flex items-start justify-between gap-4">
+                                <div className="w-16 h-16 rounded-3xl bg-white/85 border border-violet-100 shadow-lg shadow-violet-100 flex items-center justify-center text-violet-700">
+                                  <UserCircle className="w-9 h-9" />
+                                </div>
+                                <span
+                                  title={typeHint}
+                                  className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-white/80 px-3 py-1.5 text-xs font-bold text-violet-700 shadow-sm"
+                                >
+                                  <Lock className="w-3.5 h-3.5" />
+                                  私人空间
+                                </span>
+                              </div>
+
+                              <div className="mt-8">
+                                <p className="text-xs font-bold uppercase tracking-wider text-violet-500">Personal Community</p>
+                                <h3 className="mt-2 text-2xl font-black text-slate-900">{c.name}</h3>
+                                <p className="mt-3 min-h-12 text-sm leading-6 text-slate-600 line-clamp-2">{c.description || '你的个人发布空间'}</p>
+                              </div>
+
+                              <div className="mt-6 rounded-2xl border border-violet-100 bg-white/70 p-4 text-sm leading-6 text-slate-600">
+                                <p className="font-bold text-violet-700">访问规则</p>
+                                <p className="mt-1">只有你会在社区大厅看到它。其他用户需要点击你的头像进入个人主页并提交申请。</p>
+                                <p className="mt-1">访问有效期：{c.personalAccessDays || 7} 天，可在管理页调整。</p>
+                              </div>
+
+                              <div className="mt-auto flex gap-3 pt-6">
+                                <button
+                                  onClick={() => { setActiveCommunityId(c.id); setView('explore'); }}
+                                  className="flex-1 rounded-2xl bg-white/85 px-4 py-3 font-bold text-violet-700 shadow-sm ring-1 ring-violet-100 transition-colors hover:bg-white"
+                                >
+                                  {t('open')}
+                                </button>
+                                {isCommunityAdmin && (
+                                  <button
+                                    onClick={() => setActiveCommunityAdminPanel(c.id)}
+                                    className="relative rounded-2xl bg-violet-700 px-5 py-3 font-bold text-white shadow-lg shadow-violet-300 transition-colors hover:bg-violet-800"
+                                  >
+                                    管理
+                                    {hasPendingRequests && (
+                                      <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                                        {c.pendingMembers.length > 9 ? '9+' : c.pendingMembers.length}
+                                      </span>
+                                    )}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
 
                       return (
-                          <div key={c.id} className="glass-card rounded-2xl p-8 hover:-translate-y-1 transition-transform duration-300">
-                              <div className="flex justify-between items-start mb-6">
-                                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center border border-white shadow-sm ${
-                                      isOpenCommunity 
-                                          ? 'bg-gradient-to-br from-emerald-50 to-teal-50 text-emerald-600' 
-                                          : 'bg-gradient-to-br from-indigo-50 to-purple-50 text-indigo-600'
-                                  }`}>
-                                      {isOpenCommunity ? (
-                                          <Globe className="w-7 h-7" />
-                                      ) : (
-                                          <Users className="w-7 h-7" />
-                                      )}
+                          <div key={c.id} className="group rounded-3xl border border-slate-200 bg-white p-7 shadow-sm shadow-slate-200/70 transition-all duration-300 hover:-translate-y-1 hover:border-slate-300 hover:shadow-xl">
+                              <div className="flex items-start justify-between gap-4 mb-7">
+                                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center border shadow-sm ${cardTone.icon}`}>
+                                      {isOpenCommunity ? <Globe className="w-7 h-7" /> : <Users className="w-7 h-7" />}
                                   </div>
-                                  <div className="flex flex-col items-end gap-2">
-                                      <span className={`text-xs font-bold px-3 py-1.5 rounded-full border ${
-                                          isOpenCommunity 
-                                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
-                                              : 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                                      }`}>
+                                  <div className="flex flex-wrap justify-end gap-2">
+                                      <span title={typeHint} className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full border ${cardTone.status}`}>
+                                          {isOpenCommunity ? <Globe className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
                                           {isOpenCommunity ? '开放' : '封闭'}
                                       </span>
-                                      <span className="text-xs font-bold bg-slate-100 text-slate-600 px-3 py-1.5 rounded-full border border-slate-200">
-                                          {c.members.length} {t('member')}
+                                      <span title={reviewModeHint} className="inline-flex items-center gap-1.5 text-xs font-bold bg-amber-50 text-amber-700 px-3 py-1.5 rounded-full border border-amber-200">
+                                          <ShieldCheck className="w-3.5 h-3.5" />
+                                          {reviewModeLabel}
                                       </span>
                                   </div>
                               </div>
-                              <h3 className="text-xl font-bold text-slate-800 mb-3">{c.name}</h3>
-                              <p className="text-sm text-slate-500 mb-8 line-clamp-2 h-10 leading-relaxed">{c.description}</p>
-                              
+                              <h3 className="text-2xl font-black text-slate-900 mb-3">{c.name}</h3>
+                              <p className="text-sm text-slate-500 mb-6 line-clamp-2 min-h-12 leading-6">{c.description}</p>
+
+                              <div className="mb-7 flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 text-xs font-bold text-slate-500">
+                                  <span title="当前社区成员数量。人数越多的社区会越靠前显示。">{c.members.length} {t('member')}</span>
+                                  <span title={reviewModeHint}>{reviewModeLabel === '即发后巡' ? '发布更快' : '内容更稳'}</span>
+                              </div>
+
                               <div className="flex gap-3">
                                   {/* General Admin or Community Admin: Can open and manage the community */}
                                   {role === 'general_admin' || isCommunityAdmin ? (
                                       <>
-                                          <button 
+                                          <button
                                               onClick={() => { setActiveCommunityId(c.id); setView('explore'); }}
                                               className="flex-1 px-4 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-colors"
                                           >
@@ -2210,7 +2393,7 @@ export default function App() {
                                           </button>
                                           <button
                                               onClick={() => setActiveCommunityAdminPanel(c.id)}
-                                              className="px-4 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors flex items-center gap-2 relative"
+                                              className="px-4 py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-colors flex items-center gap-2 relative"
                                           >
                                               <Settings className="w-4 h-4" />
                                               管理
@@ -2223,13 +2406,13 @@ export default function App() {
                                       </>
                                   ) : isMember ? (
                                       <>
-                                          <button 
+                                          <button
                                               onClick={() => { setActiveCommunityId(c.id); setView('explore'); }}
                                               className="flex-1 px-4 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-colors"
                                           >
                                               {t('open')}
                                           </button>
-                                          <button 
+                                          <button
                                               onClick={(e) => { e.stopPropagation(); handleLeaveCommunity(c.id); }}
                                               className="px-4 py-3 bg-red-50 text-red-600 font-bold rounded-xl hover:bg-red-100 transition-colors border border-red-100"
                                           >
@@ -2241,7 +2424,7 @@ export default function App() {
                                           Requested
                                       </button>
                                   ) : (
-                                      <button 
+                                      <button
                                           onClick={() => {
                                             if (!isLoggedIn) {
                                               requireLogin('加入社区仅在登录后开放。登录后即可申请加入社区或使用邀请码加入。');
@@ -2249,11 +2432,7 @@ export default function App() {
                                             }
                                             isOpenCommunity ? handleJoinOpenCommunity(c.id) : handleRequestJoin(c.id);
                                           }}
-                                          className={`flex-1 px-4 py-3 font-bold rounded-xl transition-all ${
-                                              isOpenCommunity 
-                                                  ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:shadow-lg hover:shadow-emerald-500/30' 
-                                                  : 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:shadow-lg hover:shadow-indigo-500/30'
-                                          }`}
+                                          className={`flex-1 px-4 py-3 font-bold rounded-xl transition-all ${cardTone.action}`}
                                       >
                                           {isOpenCommunity ? '加入' : t('join')}
                                       </button>
@@ -2271,12 +2450,12 @@ export default function App() {
     try {
       console.log('=== handleOpenBountyDetail ===');
       console.log('Original bounty:', bounty);
-      
+
       const detailedBounty = await BountiesAPI.getById(bounty.id);
       console.log('Detailed bounty from API:', detailedBounty);
       console.log('Has solutions:', !!detailedBounty.solutions);
       console.log('Solutions count:', detailedBounty.solutions?.length);
-      
+
       setSelectedBounty(detailedBounty);
       setIsBountyDetailOpen(true);
     } catch (error) {
@@ -2290,7 +2469,7 @@ export default function App() {
     const visibleBounties = bounties.filter(b => {
         if(b.layer !== layer) return false;
         if(layer === 'community' && b.communityId !== activeCommunityId) return false;
-        
+
         // Visibility control: closed bounties only visible to creator and accepted user
         if (b.status === 'closed') {
             if (!currentUserId) return false;
@@ -2311,7 +2490,7 @@ export default function App() {
                </h2>
                <p className="text-slate-500 mt-2 text-lg">{t('bountyDesc')}</p>
             </div>
-            <button 
+            <button
                onClick={() => {
                  if (!isLoggedIn) {
                    requireLogin('发布悬赏仅在登录后开放。登录后即可创建和管理悬赏任务。');
@@ -2353,13 +2532,13 @@ export default function App() {
                      </div>
                      <h3 className="text-xl font-bold text-slate-800 mb-2">{b.title}</h3>
                      <p className="text-slate-500 text-sm mb-6 leading-relaxed">{b.description}</p>
-                     
+
                      <div className="flex items-center gap-4 pt-4 border-t border-slate-100">
                          {(role === 'general_admin' || b.creatorId === currentUserId) && (
-                             <button 
-                                onClick={(e) => { 
-                                    e.stopPropagation(); 
-                                    handleDeleteBounty(b.id); 
+                             <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteBounty(b.id);
                                 }}
                                 className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                              >
@@ -2367,7 +2546,7 @@ export default function App() {
                              </button>
                          )}
                      </div>
-                     <button 
+                     <button
                         onClick={() => handleOpenBountyDetail(b)}
                         className="absolute inset-0 cursor-pointer"
                      />
@@ -2418,6 +2597,44 @@ export default function App() {
              )}
              <StatsCard label={t('statsUsers')} value={role === 'general_admin' || role === 'site_sub_admin' ? allUsers.length : (activeCommunity?.members.length || 0)} color="bg-emerald-500 text-emerald-500" />
          </div>
+
+         {role === 'general_admin' && (
+           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+               <div>
+                 <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                   <ShieldCheck className="w-5 h-5 text-indigo-600" />
+                   通用知识库审核策略
+                 </h3>
+                 <p className="text-sm text-slate-500 mt-1">
+                   当前：{generalReviewMode === 'post_review' ? '即发后巡' : '先审后发'}
+                 </p>
+               </div>
+               <div className="flex flex-col sm:flex-row gap-3">
+                 <button
+                   onClick={() => handleUpdateGeneralReviewMode('pre_review')}
+                   className={`px-5 py-3 rounded-xl font-bold border transition-all ${
+                     generalReviewMode === 'pre_review'
+                       ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-500/20'
+                       : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:text-indigo-700'
+                   }`}
+                 >
+                   先审后发
+                 </button>
+                 <button
+                   onClick={() => handleUpdateGeneralReviewMode('post_review')}
+                   className={`px-5 py-3 rounded-xl font-bold border transition-all ${
+                     generalReviewMode === 'post_review'
+                       ? 'bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-500/20'
+                       : 'bg-white text-slate-600 border-slate-200 hover:border-emerald-300 hover:text-emerald-700'
+                   }`}
+                 >
+                   即发后巡
+                 </button>
+               </div>
+             </div>
+           </div>
+         )}
 
          {/* Pending Communities (General Admin Only) */}
          {role === 'general_admin' && pendingComms.length > 0 && (
@@ -2473,7 +2690,7 @@ export default function App() {
                  </div>
              </div>
          )}
-         
+
          {/* Feedback Management */}
          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
@@ -2482,7 +2699,7 @@ export default function App() {
                 </h3>
                 <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-bold">{pendingFeedback.length}</span>
             </div>
-            
+
             <FeedbackList
               feedback={pendingFeedback}
               isAdmin={true}
@@ -2500,7 +2717,7 @@ export default function App() {
                 </h3>
                 <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-xs font-bold">{pendingDemos.length}</span>
             </div>
-            
+
             {pendingDemos.length === 0 ? (
                 <div className="p-12 text-center text-slate-400 italic">
                     {t('emptyPending')}
@@ -2527,9 +2744,9 @@ export default function App() {
                                     <UserCircle className="w-3 h-3" /> {d.author}
                                 </div>
                             </div>
-                            
+
                             <div className="flex items-center gap-3 shrink-0">
-                                <button 
+                                <button
                                     onClick={() => handleOpenDemoWithPermission(d)}
                                     className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
                                     title="Preview Code"
@@ -2537,13 +2754,13 @@ export default function App() {
                                     <Search className="w-5 h-5" />
                                 </button>
                                 <div className="h-8 w-px bg-slate-200"></div>
-                                <button 
+                                <button
                                     onClick={() => handleReject(d.id)}
                                     className="px-4 py-2 border border-red-200 text-red-600 font-bold rounded-lg hover:bg-red-50 text-sm transition-colors"
                                 >
                                     {t('reject')}
                                 </button>
-                                <button 
+                                <button
                                     onClick={() => handleApprove(d.id)}
                                     className="px-4 py-2 bg-emerald-500 text-white font-bold rounded-lg hover:bg-emerald-600 shadow-sm shadow-emerald-200 text-sm transition-colors"
                                 >
@@ -2565,13 +2782,13 @@ export default function App() {
                     </h3>
                     <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-xs font-bold">{publications.length}</span>
                 </div>
-                
+
                 <div className="divide-y divide-slate-100">
                     {publications.map(pub => {
-                        const demo = demos.find(d => d.id === pub.demoId);
+                        const demo = pub.demo || demos.find(d => d.id === pub.demoId);
                         const category = categories.find(c => c.id === pub.categoryId);
                         const community = pub.communityId ? communities.find(c => c.id === pub.communityId) : null;
-                        
+
                         return (
                             <div key={pub.id} className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
                                 <div className="flex-1">
@@ -2586,14 +2803,14 @@ export default function App() {
                                         )}
                                         <span className="text-xs text-slate-400">{new Date(pub.requestedAt).toLocaleDateString()}</span>
                                     </div>
-                                    <h4 className="font-bold text-slate-800 text-lg">{demo?.title || 'Unknown Demo'}</h4>
+                                    <h4 className="font-bold text-slate-800 text-lg">{demo?.title || '未命名作品'}</h4>
                                     <p className="text-sm text-slate-500 mb-2">
                                         发布到: {category?.name || 'Unknown Category'}
                                     </p>
                                 </div>
-                                
+
                                 <div className="flex items-center gap-3 shrink-0">
-                                    <button 
+                                    <button
                                         onClick={() => demo && handleOpenDemoWithPermission(demo)}
                                         className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
                                         title="预览作品"
@@ -2601,13 +2818,13 @@ export default function App() {
                                         <Search className="w-5 h-5" />
                                     </button>
                                     <div className="h-8 w-px bg-slate-200"></div>
-                                    <button 
+                                    <button
                                         onClick={() => handleRejectPublication(pub.id, '不符合要求')}
                                         className="px-4 py-2 border border-red-200 text-red-600 font-bold rounded-lg hover:bg-red-50 text-sm transition-colors"
                                     >
                                         拒绝
                                     </button>
-                                    <button 
+                                    <button
                                         onClick={() => handleApprovePublication(pub.id)}
                                         className="px-4 py-2 bg-emerald-500 text-white font-bold rounded-lg hover:bg-emerald-600 shadow-sm shadow-emerald-200 text-sm transition-colors"
                                     >
@@ -2628,7 +2845,7 @@ export default function App() {
                     <h3 className="font-bold text-slate-700 flex items-center gap-2">
                         <Users className="w-5 h-5 text-slate-500" /> {t('members')}
                     </h3>
-                    <button 
+                    <button
                         onClick={() => handleUpdateCommCode(activeCommunity.id)}
                         className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
                     >
@@ -2644,7 +2861,7 @@ export default function App() {
                                 <span className="text-sm font-medium text-slate-600">{displayName} {uid === currentUserId ? '(You)' : ''}</span>
                                 {/* Only creator can kick members */}
                                 {uid !== currentUserId && activeCommunity.creatorId === currentUserId && (
-                                    <button 
+                                    <button
                                         onClick={() => handleManageMember(activeCommunity.id, uid, 'kick')}
                                         className="text-xs text-red-400 hover:text-red-600 font-bold"
                                     >
@@ -2664,7 +2881,7 @@ export default function App() {
   const renderProfile = () => {
     const userId = viewingUserId || currentUserId;
     const isViewingOther = viewingUserId !== null;
-    
+
     const handleOpenCommunity = (communityId: string) => {
       const community = communities.find(c => c.id === communityId);
       if (community) {
@@ -2679,19 +2896,19 @@ export default function App() {
         }
       }
     };
-    
+
     const handleOpenDemo = (demo: Demo) => {
       handleOpenDemoWithPermission(demo, true);
     };
-    
+
     const handleOpenBanAppeal = () => {
       handleOpenFeedback('ban_appeal', 'general');
     };
-    
+
     const handleOpenPointsShop = () => {
       setView('points_shop');
     };
-    
+
     return (
       <ProfilePage
         userId={userId}
@@ -2857,7 +3074,7 @@ export default function App() {
       color: theme === 'dark' ? '#e2e8f0' : '#475569'
     }}>
       <div className="fixed inset-0 bg-grid-slate opacity-[0.4] pointer-events-none z-0"></div>
-      
+
       {renderTopbar()}
       {renderSidebar()}
 
@@ -2927,13 +3144,14 @@ export default function App() {
                   {view === 'bounties' && renderBounties()}
                   {view === 'announcements' && renderAnnouncements()}
                   {view === 'upload' && (
-                    <UploadWizard 
-                      t={t} 
+                    <UploadWizard
+                      t={t}
                       categories={categories}
                       communities={communities}
                       currentUserId={currentUserId}
                       role={role}
-                      onSubmit={handleUpload} 
+                      generalReviewMode={generalReviewMode}
+                      onSubmit={handleUpload}
                       onCancel={() => {
                         setQuickUploadContext(null);
                         setView('explore');
@@ -2984,7 +3202,7 @@ export default function App() {
       )}
 
       {/* Modals and AI Widget remain the same in logic, UI inherits global styles */}
-      <CreateBountyModal 
+      <CreateBountyModal
         isOpen={isBountyModalOpen}
         onClose={() => setIsBountyModalOpen(false)}
         onSubmit={handleCreateBounty}
@@ -2995,12 +3213,13 @@ export default function App() {
         lang={language}
       />
 
-      <CreateCategoryModal 
-        isOpen={categoryModal.isOpen}
-        parentId={categoryModal.parentId}
-        onClose={() => setCategoryModal({ ...categoryModal, isOpen: false })}
-        onSubmit={handleAddCategory}
-        t={t}
+	      <CreateCategoryModal
+	        isOpen={categoryModal.isOpen}
+	        parentId={categoryModal.parentId}
+	        showIconPicker={layer === 'general' && role === 'general_admin'}
+	        onClose={() => setCategoryModal({ ...categoryModal, isOpen: false })}
+	        onSubmit={handleAddCategory}
+	        t={t}
       />
 
       <PublishToCommunityModal
@@ -3012,7 +3231,7 @@ export default function App() {
         categories={categories}
         userCommunities={communities.filter(c => c.status === 'approved')}
       />
-      
+
       {/* Join By Code Modal */}
       {isJoinCodeModalOpen && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/30 backdrop-blur-md">
@@ -3022,8 +3241,8 @@ export default function App() {
                  </div>
                  <h3 className="font-bold text-slate-800 mb-2 text-center text-lg">{t('joinByCode')}</h3>
                  <p className="text-slate-500 text-center text-sm mb-6">Enter the exclusive access code provided by the community admin.</p>
-                 
-                 <input 
+
+                 <input
                     className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 mb-6 font-mono text-center tracking-[0.2em] text-lg uppercase focus:border-indigo-500 focus:ring-0 outline-none transition-colors"
                     placeholder="XXXXXXXXXXXX"
                     maxLength={12}
@@ -3046,25 +3265,56 @@ export default function App() {
                     <div className="p-2 bg-indigo-100 rounded-lg text-indigo-600"><Building2 className="w-6 h-6"/></div>
                     <h3 className="font-bold text-slate-800 text-xl">{t('createCommunityTitle')}</h3>
                  </div>
-                 
+
                  <div className="space-y-5 mb-8">
                      <div>
                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{t('communityName')}</label>
-                         <input 
-                            className="w-full border border-slate-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 outline-none transition-all" 
-                            value={createCommData.name} 
+                         <input
+                            className="w-full border border-slate-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 outline-none transition-all"
+                            value={createCommData.name}
                             onChange={e => setCreateCommData({...createCommData, name: e.target.value})}
                             placeholder="e.g. Quantum Research Group"
                          />
                      </div>
+                     <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
+                         <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('bilingualContent')}</div>
+                         <input
+                            className="w-full border border-slate-200 bg-white rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 outline-none transition-all"
+                            value={createCommData.nameCn}
+                            onChange={e => setCreateCommData({...createCommData, nameCn: e.target.value})}
+                            placeholder={`${t('communityName')} - ${t('chineseOptional')}`}
+                         />
+                         <input
+                            className="w-full border border-slate-200 bg-white rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 outline-none transition-all"
+                            value={createCommData.nameEn}
+                            onChange={e => setCreateCommData({...createCommData, nameEn: e.target.value})}
+                            placeholder={`${t('communityName')} - ${t('englishOptional')}`}
+                         />
+                     </div>
                      <div>
                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{t('communityDesc')}</label>
-                         <textarea 
-                            className="w-full border border-slate-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 outline-none transition-all" 
+                         <textarea
+                            className="w-full border border-slate-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 outline-none transition-all"
                             rows={3}
-                            value={createCommData.desc} 
+                            value={createCommData.desc}
                             onChange={e => setCreateCommData({...createCommData, desc: e.target.value})}
                             placeholder="Briefly describe your research goals..."
+                         />
+                     </div>
+                     <div className="grid grid-cols-1 gap-3">
+                         <textarea
+                            className="w-full border border-slate-200 bg-slate-50/70 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 outline-none transition-all"
+                            rows={2}
+                            value={createCommData.descCn}
+                            onChange={e => setCreateCommData({...createCommData, descCn: e.target.value})}
+                            placeholder={`${t('communityDesc')} - ${t('chineseOptional')}`}
+                         />
+                         <textarea
+                            className="w-full border border-slate-200 bg-slate-50/70 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 outline-none transition-all"
+                            rows={2}
+                            value={createCommData.descEn}
+                            onChange={e => setCreateCommData({...createCommData, descEn: e.target.value})}
+                            placeholder={`${t('communityDesc')} - ${t('englishOptional')}`}
                          />
                      </div>
                      <div>
@@ -3073,8 +3323,8 @@ export default function App() {
                              <button
                                 onClick={() => setCreateCommData({...createCommData, type: 'closed'})}
                                 className={`p-4 rounded-xl border-2 transition-all text-left ${
-                                    createCommData.type === 'closed' 
-                                        ? 'border-indigo-500 bg-indigo-50' 
+                                    createCommData.type === 'closed'
+                                        ? 'border-indigo-500 bg-indigo-50'
                                         : 'border-slate-200 hover:border-slate-300'
                                 }`}
                              >
@@ -3089,8 +3339,8 @@ export default function App() {
                              <button
                                 onClick={() => setCreateCommData({...createCommData, type: 'open'})}
                                 className={`p-4 rounded-xl border-2 transition-all text-left ${
-                                    createCommData.type === 'open' 
-                                        ? 'border-emerald-500 bg-emerald-50' 
+                                    createCommData.type === 'open'
+                                        ? 'border-emerald-500 bg-emerald-50'
                                         : 'border-slate-200 hover:border-slate-300'
                                 }`}
                              >
@@ -3107,15 +3357,15 @@ export default function App() {
                  </div>
                  <div className="flex gap-3">
                      <button onClick={() => setIsCreateCommModalOpen(false)} className="flex-1 py-3 text-slate-600 font-bold hover:bg-slate-50 rounded-xl transition-colors">{t('cancel')}</button>
-                     <button onClick={handleCreateCommunity} disabled={!createCommData.name} className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-500/30 disabled:opacity-50 transition-all">{t('create')}</button>
+                     <button onClick={handleCreateCommunity} disabled={!createCommData.name.trim() && !createCommData.nameCn.trim() && !createCommData.nameEn.trim()} className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-500/30 disabled:opacity-50 transition-all">{t('create')}</button>
                  </div>
              </div>
           </div>
       )}
 
       {/* ... Floating AI Widget ... */}
-      <AiChatWidget 
-        t={t} 
+      <AiChatWidget
+        t={t}
         language={language}
         onOpenDemo={(demoId) => {
           console.log('App: Looking for demo:', demoId);
@@ -3131,13 +3381,13 @@ export default function App() {
         setIsOpen={setIsChatOpen}
         demos={demos}
       />
-      
+
       {/* Hidden File Input for Cover Update */}
-      <input 
-         type="file" 
-         ref={fileInputRef} 
-         onChange={handleFileChange} 
-         className="hidden" 
+      <input
+         type="file"
+         ref={fileInputRef}
+         onChange={handleFileChange}
+         className="hidden"
          accept="image/*"
       />
 
@@ -3209,7 +3459,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Bounty Modals */}
-      <CreateBountyModal 
+      <CreateBountyModal
         isOpen={isBountyModalOpen}
         onClose={() => setIsBountyModalOpen(false)}
         onSubmit={handleCreateBounty}
@@ -3249,7 +3499,7 @@ export default function App() {
         onDelete={handleDeleteBounty}
         lang={language}
       />
-      
+
       {/* Feedback Modal */}
       {feedbackModalData && (
         <FeedbackModal
@@ -3272,7 +3522,7 @@ export default function App() {
       {/* Footer - appears when scrolled to bottom */}
       <footer className="py-6 px-4 md:pl-80 w-full">
         <div className="max-w-[1400px] mx-auto flex justify-center items-center">
-          <div 
+          <div
             className="group relative cursor-pointer hover:scale-105 transition-transform"
             onClick={() => setView('team')}
           >

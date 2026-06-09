@@ -27,10 +27,11 @@ const createTables = async () => {
       ban_reason TEXT,
       contact_info TEXT,
       payment_qr TEXT,
-      bio TEXT,
-      password TEXT,
-      community_points INTEGER DEFAULT 0
-    )
+	      bio TEXT,
+	      password TEXT,
+	      avatar_image TEXT,
+	      community_points INTEGER DEFAULT 0
+	    )
   `);
 
   // Communities table
@@ -38,10 +39,17 @@ const createTables = async () => {
     CREATE TABLE IF NOT EXISTS communities (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
+      name_cn TEXT,
+      name_en TEXT,
       description TEXT,
+      description_cn TEXT,
+      description_en TEXT,
       creator_id TEXT NOT NULL,
       code TEXT UNIQUE NOT NULL,
       status TEXT NOT NULL CHECK(status IN ('pending', 'approved', 'rejected')),
+      type TEXT DEFAULT 'closed' CHECK(type IN ('open', 'closed', 'personal')),
+      review_mode TEXT DEFAULT 'pre_review' CHECK(review_mode IN ('pre_review', 'post_review')),
+      personal_access_days INTEGER DEFAULT 7,
       created_at INTEGER NOT NULL,
       FOREIGN KEY (creator_id) REFERENCES users(id)
     )
@@ -56,6 +64,7 @@ const createTables = async () => {
       status TEXT NOT NULL CHECK(status IN ('member', 'pending')),
       role TEXT NOT NULL DEFAULT 'member' CHECK(role IN ('member', 'admin')),
       joined_at INTEGER NOT NULL,
+      access_expires_at INTEGER,
       UNIQUE(community_id, user_id),
       FOREIGN KEY (community_id) REFERENCES communities(id) ON DELETE CASCADE,
       FOREIGN KEY (user_id) REFERENCES users(id)
@@ -67,9 +76,12 @@ const createTables = async () => {
     CREATE TABLE IF NOT EXISTS categories (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      parent_id TEXT,
-      community_id TEXT,
-      created_at INTEGER NOT NULL,
+	      name_cn TEXT,
+	      name_en TEXT,
+	      parent_id TEXT,
+	      community_id TEXT,
+	      icon TEXT,
+	      created_at INTEGER NOT NULL,
       FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE CASCADE,
       FOREIGN KEY (community_id) REFERENCES communities(id) ON DELETE CASCADE
     )
@@ -80,7 +92,11 @@ const createTables = async () => {
     CREATE TABLE IF NOT EXISTS demos (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
+      title_cn TEXT,
+      title_en TEXT,
       description TEXT,
+      description_cn TEXT,
+      description_en TEXT,
       category_id TEXT NOT NULL,
       layer TEXT NOT NULL CHECK(layer IN ('general', 'community')),
       community_id TEXT,
@@ -89,8 +105,9 @@ const createTables = async () => {
       config TEXT,
       author TEXT NOT NULL,
       creator_id TEXT NOT NULL,
-      thumbnail_url TEXT,
-      status TEXT NOT NULL CHECK(status IN ('pending', 'published', 'rejected')),
+	      thumbnail_url TEXT,
+	      source_visibility TEXT DEFAULT 'open' CHECK(source_visibility IN ('open', 'closed')),
+	      status TEXT NOT NULL CHECK(status IN ('pending', 'published', 'rejected')),
       rejection_reason TEXT,
       bounty_id TEXT,
       project_type TEXT DEFAULT 'single-file' CHECK(project_type IN ('single-file', 'multi-file')),
@@ -98,6 +115,9 @@ const createTables = async () => {
       project_size INTEGER,
       tags TEXT,
       created_at INTEGER NOT NULL,
+      updated_at INTEGER,
+      archived INTEGER DEFAULT 0,
+      archived_at INTEGER,
       FOREIGN KEY (community_id) REFERENCES communities(id) ON DELETE CASCADE,
       FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE CASCADE
     )
@@ -264,6 +284,34 @@ const createTables = async () => {
       UNIQUE(demo_id, layer, community_id)
     )
   `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS feedback (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL CHECK (type IN ('demo_complaint', 'community_feedback', 'website_feedback', 'ban_appeal')),
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      layer TEXT NOT NULL CHECK (layer IN ('general', 'community')),
+      community_id TEXT,
+      demo_id TEXT,
+      demo_title TEXT,
+      community_name TEXT,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'resolved', 'dismissed')),
+      resolution TEXT,
+      created_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      reviewed_by TEXT,
+      reviewed_at INTEGER
+    )
+  `);
+
+  await runQuery(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+  await runQuery("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('general_review_mode', 'pre_review')");
 
 
   console.log('Tables created successfully');

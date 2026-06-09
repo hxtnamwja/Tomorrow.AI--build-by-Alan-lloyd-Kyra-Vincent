@@ -34,8 +34,11 @@ const mapCategoryRow = (row) => {
   return {
     id: row.id,
     name: row.name,
+    nameCn: row.name_cn || undefined,
+    nameEn: row.name_en || undefined,
     parentId: row.parent_id,
     communityId: row.community_id || undefined,
+    icon: row.icon || undefined,
     createdAt: row.created_at
   };
 };
@@ -72,7 +75,7 @@ router.post('/', async (req, res) => {
     return res.status(401).json({ code: 401, message: 'Unauthorized', data: null });
   }
 
-  const { name, parentId, communityId } = req.body;
+  const { name, nameCn, nameEn, parentId, communityId, icon } = req.body;
   
   // Permission check
   let hasPermission = false;
@@ -91,9 +94,9 @@ router.post('/', async (req, res) => {
   
   try {
     await runQuery(`
-      INSERT INTO categories (id, name, parent_id, community_id, created_at)
-      VALUES (?, ?, ?, ?, ?)
-    `, [id, name, parentId || null, communityId || null, now]);
+      INSERT INTO categories (id, name, name_cn, name_en, parent_id, community_id, icon, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `, [id, name, nameCn || null, nameEn || null, parentId || null, communityId || null, icon || null, now]);
     
     const category = await getRow('SELECT * FROM categories WHERE id = ?', [id]);
     res.json({ code: 200, message: 'Success', data: mapCategoryRow(category) });
@@ -149,9 +152,9 @@ router.put('/:id', async (req, res) => {
     return res.status(401).json({ code: 401, message: 'Unauthorized', data: null });
   }
 
-  const { name } = req.body;
-  if (!name) {
-    return res.status(400).json({ code: 400, message: 'New name is required', data: null });
+  const { name, nameCn, nameEn, icon } = req.body;
+  if (!name && nameCn === undefined && nameEn === undefined && icon === undefined) {
+    return res.status(400).json({ code: 400, message: 'New name or icon is required', data: null });
   }
 
   try {
@@ -172,7 +175,26 @@ router.put('/:id', async (req, res) => {
       return res.status(403).json({ code: 403, message: 'Forbidden', data: null });
     }
 
-    const result = await runQuery('UPDATE categories SET name = ? WHERE id = ?', [name, req.params.id]);
+    const updates = [];
+    const params = [];
+    if (name) {
+      updates.push('name = ?');
+      params.push(name);
+    }
+    if (nameCn !== undefined) {
+      updates.push('name_cn = ?');
+      params.push(nameCn || null);
+    }
+    if (nameEn !== undefined) {
+      updates.push('name_en = ?');
+      params.push(nameEn || null);
+    }
+    if (icon !== undefined) {
+      updates.push('icon = ?');
+      params.push(icon || null);
+    }
+    params.push(req.params.id);
+    await runQuery(`UPDATE categories SET ${updates.join(', ')} WHERE id = ?`, params);
     
     // Check if the update was successful. If changes is 0, it might be because the name is the same.
     // We can also verify that the category still exists.
@@ -181,7 +203,7 @@ router.put('/:id', async (req, res) => {
       return res.status(404).json({ code: 404, message: 'Category not found after update', data: null });
     }
     
-    console.log(`[Categories] Category ${req.params.id} renamed to ${name}`);
+    console.log(`[Categories] Category ${req.params.id} updated`);
     res.json({ code: 200, message: 'Updated successfully', data: mapCategoryRow(updatedCategory) });
   } catch (error) {
     console.error('Error updating category:', error);

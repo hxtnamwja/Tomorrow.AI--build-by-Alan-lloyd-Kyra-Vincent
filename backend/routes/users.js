@@ -18,6 +18,7 @@ const mapUserRow = (row) => {
     communityPoints: row.community_points || 0,
     favorites: row.favorites ? JSON.parse(row.favorites) : [],
     avatarBorder: row.avatar_border || undefined,
+    avatarImage: row.avatar_image || undefined,
     avatarAccessory: row.avatar_accessory || undefined,
     avatarEffect: row.avatar_effect || undefined,
     usernameColor: row.username_color || undefined,
@@ -82,7 +83,7 @@ router.get('/', async (req, res) => {
   try {
     const users = await getAllRows(`
       SELECT id, username, role, created_at, is_banned, ban_reason, contact_info, bio, 
-             contribution_points, points, community_points, favorites, avatar_border, avatar_accessory, avatar_effect,
+             contribution_points, points, community_points, favorites, avatar_border, avatar_image, avatar_accessory, avatar_effect,
              username_color, username_effect, profile_theme, profile_background, custom_title,
              unlocked_achievements, owned_items
       FROM users 
@@ -101,7 +102,7 @@ router.get('/public', async (req, res) => {
   try {
     const users = await getAllRows(`
       SELECT id, username, role, created_at, contact_info, bio, is_banned, ban_reason,
-             contribution_points, points, community_points, favorites, avatar_border, avatar_accessory, avatar_effect,
+             contribution_points, points, community_points, favorites, avatar_border, avatar_image, avatar_accessory, avatar_effect,
              username_color, username_effect, profile_theme, profile_background, custom_title,
              unlocked_achievements, owned_items
       FROM users 
@@ -167,7 +168,7 @@ router.get('/:id', async (req, res) => {
   try {
     const user = await getRow(`
       SELECT id, username, role, created_at, is_banned, ban_reason, contact_info, payment_qr, bio,
-             contribution_points, points, community_points, favorites, avatar_border, avatar_accessory, avatar_effect,
+             contribution_points, points, community_points, favorites, avatar_border, avatar_image, avatar_accessory, avatar_effect,
              username_color, username_effect, profile_theme, profile_background, custom_title,
              unlocked_achievements, owned_items
       FROM users 
@@ -286,7 +287,7 @@ router.put('/:id', async (req, res) => {
   const {
     username, password, contactInfo, paymentQr, bio,
     contributionPoints, points, communityPoints, favorites,
-    avatarBorder, avatarAccessory, avatarEffect,
+    avatarBorder, avatarImage, avatarAccessory, avatarEffect,
     usernameColor, usernameEffect, profileTheme, profileBackground,
     customTitle, unlockedAchievements, ownedItems
   } = req.body;
@@ -356,6 +357,11 @@ router.put('/:id', async (req, res) => {
       params.push(avatarBorder || null);
     }
 
+    if (avatarImage !== undefined) {
+      updates.push('avatar_image = ?');
+      params.push(avatarImage || null);
+    }
+
     if (avatarAccessory !== undefined) {
       updates.push('avatar_accessory = ?');
       params.push(avatarAccessory || null);
@@ -408,7 +414,7 @@ router.put('/:id', async (req, res) => {
 
     const updatedUser = await getRow(`
       SELECT id, username, role, created_at, is_banned, ban_reason, contact_info, payment_qr, bio,
-             contribution_points, points, community_points, favorites, avatar_border, avatar_accessory, avatar_effect,
+             contribution_points, points, community_points, favorites, avatar_border, avatar_image, avatar_accessory, avatar_effect,
              username_color, username_effect, profile_theme, profile_background, custom_title,
              unlocked_achievements, owned_items
       FROM users WHERE id = ?
@@ -469,6 +475,7 @@ router.get('/:id/stats', async (req, res) => {
 // GET /users/:id/demos - Get all demos by user
 router.get('/:id/demos', async (req, res) => {
   const { id } = req.params;
+  const { search } = req.query;
 
   try {
     // First, get the user to know their username
@@ -479,11 +486,20 @@ router.get('/:id/demos', async (req, res) => {
     }
 
     // First, get all unique demo ids from demos table (original demos)
-    const baseDemos = await getAllRows(`
+    let query = `
       SELECT DISTINCT d.* FROM demos d 
       WHERE (d.creator_id = ? OR d.author = ?) AND d.status = 'published' AND (d.archived = 0 OR d.archived IS NULL)
-      ORDER BY d.created_at DESC
-    `, [id, user.username]);
+    `;
+    const params = [id, user.username];
+
+    if (search) {
+      query += ' AND (d.title LIKE ? OR d.description LIKE ?)';
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    query += ' ORDER BY d.created_at DESC';
+
+    const baseDemos = await getAllRows(query, params);
 
     // For each demo, get all its locations
     const demosWithLocations = [];

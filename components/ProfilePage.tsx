@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { UserRole, User as UserType, Community, Demo, Feedback, Language } from '../types';
-import { UserCircle, ShieldCheck, Edit3, Save, X, Mail, QrCode, BookOpen, Building2, Heart, Image as ImageIcon, MessageSquare, Archive, RotateCcw, Trash2, Star, Trophy, Award, ChevronRight, BookMarked, FlaskConical, Beaker, ShoppingBag, Sparkles, Crown, Atom, Compass, Cat, Rabbit, Gem, Gift, Lightbulb, Flame, Wand2, Monitor, Gamepad2, Zap, Ghost, HelpCircle } from 'lucide-react';
+import { UserCircle, ShieldCheck, Edit3, Save, X, Mail, QrCode, BookOpen, Building2, Heart, Image as ImageIcon, MessageSquare, Archive, RotateCcw, Trash2, Star, Trophy, Award, ChevronRight, BookMarked, FlaskConical, Beaker, ShoppingBag, Sparkles, Crown, Atom, Compass, Cat, Rabbit, Gem, Gift, Lightbulb, Flame, Wand2, Monitor, Gamepad2, Zap, Ghost, HelpCircle, Search, Loader2 } from 'lucide-react';
 import { StorageService } from '../services/storageService';
-import { FeedbackAPI, DemosAPI } from '../services/apiService';
+import { FeedbackAPI, DemosAPI, CommunitiesAPI } from '../services/apiService';
 import FeedbackList from './FeedbackList';
 import { LEVEL_CONFIG, LEVEL_PRIVILEGES, calculateLevel, getLevelInfo, getPointsToNextLevel, AVATAR_BORDERS, USERNAME_COLORS, USERNAME_EFFECTS, PROFILE_THEMES, CUSTOM_TITLES, APP_THEMES, AVATAR_ACCESSORIES, AVATAR_EFFECTS, PROFILE_BACKGROUNDS, PROFILE_EFFECTS, hasExclusiveBadgeDisplay, hasExclusiveAvatarBorder, isOnContributorWall } from '../constants';
 
@@ -63,19 +63,31 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   const [archivedDemos, setArchivedDemos] = useState<Demo[]>([]);
   const [favoriteDemos, setFavoriteDemos] = useState<Demo[]>([]);
   const [userFeedbacks, setUserFeedbacks] = useState<Feedback[]>([]);
+	  const [userDemosLoaded, setUserDemosLoaded] = useState(false);
+	  const [archivedDemosLoaded, setArchivedDemosLoaded] = useState(false);
+	  const [userDemosVisible, setUserDemosVisible] = useState(false);
+	  const [archivedDemosVisible, setArchivedDemosVisible] = useState(false);
+  const [userDemosLoading, setUserDemosLoading] = useState(false);
+  const [archivedDemosLoading, setArchivedDemosLoading] = useState(false);
+  const [userDemosSearch, setUserDemosSearch] = useState('');
+  const [archivedDemosSearch, setArchivedDemosSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
     username: '',
     password: '',
     confirmPassword: '',
-    contactInfo: '',
-    paymentQr: '',
-    bio: ''
-  });
+	    contactInfo: '',
+	    paymentQr: '',
+	    avatarImage: '',
+	    bio: ''
+	  });
   const [saving, setSaving] = useState(false);
   const [showPaymentQrUpload, setShowPaymentQrUpload] = useState(false);
   const [showPointsInfo, setShowPointsInfo] = useState(false);
+  const [personalCommunityAccess, setPersonalCommunityAccess] = useState<'member' | 'pending' | 'none' | null>(null);
+  const [personalCommunity, setPersonalCommunity] = useState<Community | null>(null);
+  const [personalCommunityLoading, setPersonalCommunityLoading] = useState(false);
 
   const isOwnProfile = userId === currentUserId;
 
@@ -97,11 +109,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     try {
       const userData = await StorageService.getUserById(userId);
       const statsData = await StorageService.getUserStats(userId);
-      const demosData = await StorageService.getUserDemos(userId);
       
       setUser(userData);
       setStats(statsData);
-      setUserDemos(demosData);
+      setUserDemos([]);
+      setArchivedDemos([]);
+	      setUserDemosLoaded(false);
+	      setArchivedDemosLoaded(false);
+	      setUserDemosVisible(false);
+	      setArchivedDemosVisible(false);
+      setUserDemosSearch('');
+      setArchivedDemosSearch('');
       
       // Load favorite demos
       if (userData?.favorites && userData.favorites.length > 0) {
@@ -114,13 +132,23 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         try {
           const feedbacksData = await FeedbackAPI.getMy();
           setUserFeedbacks(feedbacksData);
-          
-          // Load archived demos only for own profile
-          const archivedDemosData = await DemosAPI.getArchivedByUser(userId);
-          setArchivedDemos(archivedDemosData);
         } catch (error) {
-          console.error('Failed to load feedback or archived demos:', error);
+          console.error('Failed to load feedback:', error);
         }
+      }
+
+      if (!isOwnProfile && currentUserId) {
+        try {
+          const personalResult = await CommunitiesAPI.getPersonalByUser(userId);
+          setPersonalCommunity(personalResult.community);
+          setPersonalCommunityAccess(personalResult.access);
+        } catch (error) {
+          setPersonalCommunity(null);
+          setPersonalCommunityAccess(null);
+        }
+      } else {
+        setPersonalCommunity(null);
+        setPersonalCommunityAccess(null);
       }
       
       if (userData && isOwnProfile) {
@@ -128,10 +156,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           username: userData.username,
           password: '',
           confirmPassword: '',
-          contactInfo: userData.contactInfo || '',
-          paymentQr: userData.paymentQr || '',
-          bio: userData.bio || ''
-        });
+	          contactInfo: userData.contactInfo || '',
+	          paymentQr: userData.paymentQr || '',
+	          avatarImage: userData.avatarImage || '',
+	          bio: userData.bio || ''
+	        });
       }
     } catch (error) {
       console.error('Failed to load profile data:', error);
@@ -144,6 +173,56 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     loadData();
   };
 
+  const handlePersonalCommunityAction = async () => {
+    if (!personalCommunity) return;
+    if (personalCommunityAccess === 'member') {
+      onOpenCommunity?.(personalCommunity.id);
+      return;
+    }
+    if (personalCommunityAccess === 'pending') return;
+    setPersonalCommunityLoading(true);
+    try {
+      await CommunitiesAPI.requestJoin(personalCommunity.id);
+      setPersonalCommunityAccess('pending');
+      alert(lang === 'cn' ? '访问申请已提交，等待对方通过。' : 'Access request submitted.');
+    } catch (error: any) {
+      alert(error?.message || (lang === 'cn' ? '申请失败' : 'Request failed'));
+    } finally {
+      setPersonalCommunityLoading(false);
+    }
+  };
+
+  const loadUserDemos = async (search = userDemosSearch) => {
+    setUserDemosLoading(true);
+    try {
+      const demosData = await StorageService.getUserDemos(userId, { search: search.trim() || undefined });
+	      setUserDemos(demosData);
+	      setUserDemosLoaded(true);
+	      setUserDemosVisible(true);
+    } catch (error) {
+      console.error('Failed to load user demos:', error);
+      alert(lang === 'cn' ? '发布作品加载失败' : 'Failed to load published works');
+    } finally {
+      setUserDemosLoading(false);
+    }
+  };
+
+  const loadArchivedDemos = async (search = archivedDemosSearch) => {
+    if (!isOwnProfile) return;
+    setArchivedDemosLoading(true);
+    try {
+      const archivedDemosData = await DemosAPI.getArchivedByUser(userId, { search: search.trim() || undefined });
+	      setArchivedDemos(archivedDemosData);
+	      setArchivedDemosLoaded(true);
+	      setArchivedDemosVisible(true);
+    } catch (error) {
+      console.error('Failed to load archived demos:', error);
+      alert(lang === 'cn' ? '留档加载失败' : 'Failed to load archive');
+    } finally {
+      setArchivedDemosLoading(false);
+    }
+  };
+
   const handleRestoreDemo = async (demoId: string) => {
     if (!confirm(t('confirmRestoreDemo'))) {
       return;
@@ -151,7 +230,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     try {
       await DemosAPI.restore(demoId);
       setArchivedDemos(prev => prev.filter(d => d.id !== demoId));
-      loadData();
+      if (userDemosLoaded) {
+        loadUserDemos();
+      }
     } catch (error) {
       console.error('Failed to restore demo:', error);
       alert(t('restoreFailed'));
@@ -171,13 +252,41 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     }
   };
 
+  const handleClearArchive = async () => {
+    if (!isOwnProfile || archivedDemosLoading) return;
+    const firstConfirm = confirm(lang === 'cn'
+      ? '确定要永久清空留档区吗？这里的所有留档程序都会从存储中删除。'
+      : 'Permanently clear the archive? All archived programs will be removed from storage.');
+    if (!firstConfirm) return;
+    const secondConfirm = confirm(lang === 'cn'
+      ? '请再次确认：此操作不可撤销。'
+      : 'Please confirm again: this action cannot be undone.');
+    if (!secondConfirm) return;
+
+    setArchivedDemosLoading(true);
+    try {
+      await DemosAPI.clearArchivedByUser(userId);
+	      setArchivedDemos([]);
+	      setArchivedDemosLoaded(true);
+	      setArchivedDemosVisible(true);
+    } catch (error) {
+      console.error('Failed to clear archive:', error);
+      alert(lang === 'cn' ? '清空留档失败' : 'Failed to clear archive');
+    } finally {
+      setArchivedDemosLoading(false);
+    }
+  };
+
   const handleDeleteDemo = async (demoId: string) => {
     if (!confirm(t('confirmDeleteDemoToArchive'))) {
       return;
     }
     try {
       await DemosAPI.delete(demoId);
-      loadData();
+      setUserDemos(prev => prev.filter(d => d.id !== demoId));
+      if (archivedDemosLoaded) {
+        loadArchivedDemos();
+      }
     } catch (error) {
       console.error('Failed to delete demo:', error);
       alert(t('deleteFailed'));
@@ -196,11 +305,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
     setSaving(true);
     try {
-      const updateData: any = {
-        username: editForm.username,
-        contactInfo: editForm.contactInfo || null,
-        bio: editForm.bio || null
-      };
+	      const updateData: any = {
+	        username: editForm.username,
+	        contactInfo: editForm.contactInfo || null,
+	        avatarImage: editForm.avatarImage || null,
+	        bio: editForm.bio || null
+	      };
       if (editForm.password) {
         updateData.password = editForm.password;
       }
@@ -233,6 +343,20 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert(lang === 'cn' ? '请选择图片文件' : 'Please choose an image file');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setEditForm(prev => ({ ...prev, avatarImage: reader.result as string }));
+    };
+    reader.readAsDataURL(file);
   };
 
   if (loading) {
@@ -1557,18 +1681,20 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               
               return (
                 <div className="relative">
-                  <div 
-                    className="w-24 h-24 rounded-2xl relative overflow-hidden"
-                  >
-                    <div 
-                      className={`absolute inset-0 flex items-center justify-center ${
-                        user?.role === 'general_admin' ? 'bg-purple-500' : 'bg-emerald-500'
-                      }`}
-                    >
-                      {user?.role === 'general_admin' ? (
-                        <ShieldCheck className="w-12 h-12 text-white" />
-                      ) : (
-                        <UserCircle className="w-12 h-12 text-white" />
+	                  <div
+	                    className="w-24 h-24 rounded-2xl relative overflow-hidden"
+	                  >
+	                    <div
+	                      className={`absolute inset-0 flex items-center justify-center ${
+	                        user?.role === 'general_admin' ? 'bg-purple-500' : 'bg-emerald-500'
+	                      }`}
+	                    >
+	                      {user?.avatarImage ? (
+	                        <img src={user.avatarImage} alt={user.username} className="w-full h-full object-cover" />
+	                      ) : user?.role === 'general_admin' ? (
+	                        <ShieldCheck className="w-12 h-12 text-white" />
+	                      ) : (
+	                        <UserCircle className="w-12 h-12 text-white" />
                       )}
                     </div>
                     {borderData && (
@@ -1602,11 +1728,64 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 {isEditing ? t('cancel') : t('editProfile')}
               </button>
             )}
+            {!isOwnProfile && personalCommunity && onOpenCommunity && (
+              <button
+                type="button"
+                onClick={handlePersonalCommunityAction}
+                disabled={personalCommunityLoading || personalCommunityAccess === 'pending'}
+                className="mt-14 flex items-center gap-2 px-4 py-2 bg-violet-600 shadow-lg rounded-xl text-white hover:bg-violet-700 disabled:bg-slate-300 disabled:text-slate-500 transition-colors font-medium"
+              >
+                {personalCommunityLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Building2 className="w-4 h-4" />}
+                {personalCommunityAccess === 'member'
+                  ? (lang === 'cn' ? '进入个人社区' : 'Open personal community')
+                  : personalCommunityAccess === 'pending'
+                    ? (lang === 'cn' ? '申请待通过' : 'Request pending')
+                    : (lang === 'cn' ? '申请访问个人社区' : 'Request personal community access')}
+              </button>
+            )}
           </div>
 
-          {isEditing && isOwnProfile ? (
-            <div className="space-y-4">
-              <div>
+	          {isEditing && isOwnProfile ? (
+	            <div className="space-y-4">
+	              <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+	                <label className="block text-xs font-bold text-slate-600 uppercase mb-3">{lang === 'cn' ? '个人头像' : 'Profile photo'}</label>
+	                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+	                  <div className="w-20 h-20 rounded-2xl overflow-hidden bg-white border border-slate-200 flex items-center justify-center shrink-0">
+	                    {editForm.avatarImage ? (
+	                      <img src={editForm.avatarImage} alt="Avatar preview" className="w-full h-full object-cover" />
+	                    ) : (
+	                      <UserCircle className="w-10 h-10 text-slate-300" />
+	                    )}
+	                  </div>
+	                  <div className="flex flex-wrap gap-2">
+	                    <input
+	                      id="avatar-image-upload"
+	                      type="file"
+	                      accept="image/*"
+	                      onChange={handleAvatarUpload}
+	                      className="hidden"
+	                    />
+	                    <label
+	                      htmlFor="avatar-image-upload"
+	                      className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors text-sm font-bold text-slate-700"
+	                    >
+	                      <ImageIcon className="w-4 h-4" />
+	                      {lang === 'cn' ? '上传头像' : 'Upload photo'}
+	                    </label>
+	                    {editForm.avatarImage && (
+	                      <button
+	                        type="button"
+	                        onClick={() => setEditForm(prev => ({ ...prev, avatarImage: '' }))}
+	                        className="inline-flex items-center gap-2 px-4 py-2 bg-red-50 text-red-700 rounded-xl hover:bg-red-100 transition-colors text-sm font-bold"
+	                      >
+	                        <X className="w-4 h-4" />
+	                        {lang === 'cn' ? '移除头像' : 'Remove'}
+	                      </button>
+	                    )}
+	                  </div>
+	                </div>
+	              </div>
+	              <div>
                 <label className="block text-xs font-bold text-slate-600 uppercase mb-1">{t('username')}</label>
                 <input
                   type="text"
@@ -1710,11 +1889,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       setEditForm({
                         username: user.username,
                         password: '',
-                        confirmPassword: '',
-                        contactInfo: user.contactInfo || '',
-                        paymentQr: user.paymentQr || '',
-                        bio: user.bio || ''
-                      });
+	                        confirmPassword: '',
+	                        contactInfo: user.contactInfo || '',
+	                        paymentQr: user.paymentQr || '',
+	                        avatarImage: user.avatarImage || '',
+	                        bio: user.bio || ''
+	                      });
                     }
                   }}
                   className="flex-1 px-4 py-2.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl font-medium transition-colors"
@@ -2850,12 +3030,61 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         </div>
       )}
 
-      {userDemos.length > 0 && (
-        <div className="mt-6 glass-card rounded-2xl p-6">
-          <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+      <div className="mt-6 glass-card rounded-2xl p-6">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4">
+          <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
             <BookOpen className="w-5 h-5" />
             {t('myPublishedWorks')}
           </h2>
+          <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
+            <div className="relative flex-1 lg:w-72">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                value={userDemosSearch}
+                onChange={(event) => setUserDemosSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') loadUserDemos();
+                }}
+                placeholder={lang === 'cn' ? '搜索发布作品' : 'Search published works'}
+                className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 bg-white/80 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+              />
+            </div>
+	            <button
+	              type="button"
+	              onClick={() => loadUserDemos()}
+	              disabled={userDemosLoading}
+              className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2"
+            >
+              {userDemosLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+              {userDemosSearch.trim()
+                ? (lang === 'cn' ? '搜索' : 'Search')
+	                : (userDemosLoaded ? (lang === 'cn' ? '重新加载' : 'Reload') : (lang === 'cn' ? '加载作品' : 'Load works'))}
+	            </button>
+	            {userDemosLoaded && userDemosVisible && (
+	              <button
+	                type="button"
+	                onClick={() => setUserDemosVisible(false)}
+	                className="px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold hover:bg-slate-200 transition-colors"
+	              >
+	                {lang === 'cn' ? '隐藏' : 'Hide'}
+	              </button>
+	            )}
+	          </div>
+	        </div>
+
+	        {!userDemosLoaded ? (
+	          <div className="rounded-xl bg-slate-50 border border-dashed border-slate-200 p-8 text-center text-sm text-slate-500">
+	            {lang === 'cn' ? '发布作品暂未加载。可以直接搜索，或点击加载作品查看全部。' : 'Published works are not loaded yet. Search directly or load all works.'}
+	          </div>
+	        ) : !userDemosVisible ? (
+	          <div className="rounded-xl bg-slate-50 border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
+	            {lang === 'cn' ? '发布作品已隐藏。点击加载或搜索可重新展开。' : 'Published works are hidden. Load or search to show them again.'}
+	          </div>
+	        ) : userDemos.length === 0 ? (
+          <div className="rounded-xl bg-slate-50 p-8 text-center text-sm text-slate-500">
+            {lang === 'cn' ? '没有找到发布作品。' : 'No published works found.'}
+          </div>
+        ) : (
           <div className="grid gap-3">
             {userDemos.map((demo) => {
               const canAccess = true;
@@ -2919,8 +3148,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               );
             })}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Favorites Section */}
       {isOwnProfile && favoriteDemos.length > 0 && (
@@ -3019,17 +3248,78 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         </div>
       )}
 
-      {isOwnProfile && archivedDemos.length > 0 && (
+      {isOwnProfile && (
         <div className="mt-6 glass-card rounded-2xl p-6">
-          <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-            <Archive className="w-5 h-5" />
-            {t('archiveArea')}
-          </h2>
-          <p className="text-sm text-slate-500 mb-4">
-            {t('archivedDemosDesc')}
-          </p>
-          <div className="grid gap-3">
-            {archivedDemos.map((demo) => {
+          <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 mb-4">
+            <div>
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <Archive className="w-5 h-5" />
+                {t('archiveArea')}
+              </h2>
+              <p className="text-sm text-slate-500 mt-2">
+                {t('archivedDemosDesc')}
+              </p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
+              <div className="relative flex-1 lg:w-72">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  value={archivedDemosSearch}
+                  onChange={(event) => setArchivedDemosSearch(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') loadArchivedDemos();
+                  }}
+                  placeholder={lang === 'cn' ? '搜索留档程序' : 'Search archive'}
+                  className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 bg-white/80 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => loadArchivedDemos()}
+                disabled={archivedDemosLoading}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 text-white text-sm font-bold hover:bg-slate-900 disabled:opacity-60 transition-colors flex items-center justify-center gap-2"
+              >
+                {archivedDemosLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                {archivedDemosSearch.trim()
+                  ? (lang === 'cn' ? '搜索' : 'Search')
+                  : (archivedDemosLoaded ? (lang === 'cn' ? '重新加载' : 'Reload') : (lang === 'cn' ? '加载留档' : 'Load archive'))}
+              </button>
+	              <button
+	                type="button"
+	                onClick={handleClearArchive}
+                disabled={archivedDemosLoading}
+                className="px-4 py-2.5 rounded-xl bg-red-50 text-red-700 text-sm font-bold hover:bg-red-100 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+	                {lang === 'cn' ? '清空留档' : 'Clear archive'}
+	              </button>
+	              {archivedDemosLoaded && archivedDemosVisible && (
+	                <button
+	                  type="button"
+	                  onClick={() => setArchivedDemosVisible(false)}
+	                  className="px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold hover:bg-slate-200 transition-colors"
+	                >
+	                  {lang === 'cn' ? '隐藏' : 'Hide'}
+	                </button>
+	              )}
+	            </div>
+	          </div>
+
+	          {!archivedDemosLoaded ? (
+	            <div className="rounded-xl bg-slate-50 border border-dashed border-slate-200 p-8 text-center text-sm text-slate-500">
+	              {lang === 'cn' ? '留档暂未加载。可以直接搜索，或点击加载留档查看全部。' : 'Archive is not loaded yet. Search directly or load all archived programs.'}
+	            </div>
+	          ) : !archivedDemosVisible ? (
+	            <div className="rounded-xl bg-slate-50 border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
+	              {lang === 'cn' ? '留档区域已隐藏。点击加载或搜索可重新展开。' : 'Archive is hidden. Load or search to show it again.'}
+	            </div>
+	          ) : archivedDemos.length === 0 ? (
+            <div className="rounded-xl bg-slate-50 p-8 text-center text-sm text-slate-500">
+              {lang === 'cn' ? '没有找到留档程序。' : 'No archived programs found.'}
+            </div>
+          ) : (
+            <div className="grid gap-3">
+              {archivedDemos.map((demo) => {
               const canAccess = canAccessDemo(demo);
               const communityName = demo.communityId 
                 ? communities.find(c => c.id === demo.communityId)?.name 
@@ -3070,8 +3360,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   </div>
                 </div>
               );
-            })}
-          </div>
+              })}
+            </div>
+          )}
         </div>
       )}
 

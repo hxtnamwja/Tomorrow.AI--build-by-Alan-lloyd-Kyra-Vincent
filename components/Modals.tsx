@@ -1,17 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { X, CheckCircle, XCircle, Clock, ChevronDown, ChevronUp, Globe, Users, FolderOpen } from 'lucide-react';
 import { Demo, Community, Category, DemoPublication } from '../types';
+import { PUBLIC_CATEGORY_ICON_OPTIONS, PublicCategoryIcon } from './categoryIcons';
 
-export const CreateBountyModal = ({ 
-  isOpen, 
-  onClose, 
-  onSubmit, 
-  t 
-}: { 
-  isOpen: boolean, 
-  onClose: () => void, 
+export const CreateBountyModal = ({
+  isOpen,
+  onClose,
+  onSubmit,
+  t
+}: {
+  isOpen: boolean,
+  onClose: () => void,
   onSubmit: (data: {title: string, desc: string, reward: string}) => void,
-  t: any 
+  t: any
 }) => {
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
@@ -29,7 +30,7 @@ export const CreateBountyModal = ({
         <div className="p-6 space-y-4">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">{t('bountyTitle')}</label>
-            <input 
+            <input
               value={title}
               onChange={e => setTitle(e.target.value)}
               className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
@@ -38,7 +39,7 @@ export const CreateBountyModal = ({
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">{t('bountyDesc')}</label>
-            <textarea 
+            <textarea
               value={desc}
               onChange={e => setDesc(e.target.value)}
               className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
@@ -48,7 +49,7 @@ export const CreateBountyModal = ({
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">{t('reward')}</label>
-            <input 
+            <input
               value={reward}
               onChange={e => setReward(e.target.value)}
               className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
@@ -58,14 +59,14 @@ export const CreateBountyModal = ({
         </div>
         <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-lg transition-colors">Cancel</button>
-          <button 
+          <button
             onClick={() => {
               if (title && desc && reward) {
                 onSubmit({ title, desc, reward });
                 setTitle(''); setDesc(''); setReward('');
                 onClose();
               }
-            }} 
+            }}
             disabled={!title || !desc || !reward}
             className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
@@ -77,17 +78,17 @@ export const CreateBountyModal = ({
   );
 };
 
-export const PublishToCommunityModal = ({ 
-  isOpen, 
-  onClose, 
+export const PublishToCommunityModal = ({
+  isOpen,
+  onClose,
   onSubmit,
   demo,
   communities,
   categories,
   userCommunities
-}: { 
-  isOpen: boolean, 
-  onClose: () => void, 
+}: {
+  isOpen: boolean,
+  onClose: () => void,
   onSubmit: (layer: string, categoryId: string, communityId?: string) => void,
   demo: Demo | null,
   communities: Community[],
@@ -147,8 +148,8 @@ export const PublishToCommunityModal = ({
                   setSelectedCategoryId(null);
                 }}
                 className={`p-3 rounded-lg border-2 text-left transition-all ${
-                  selectedLayer === 'general' 
-                    ? 'border-indigo-500 bg-indigo-50' 
+                  selectedLayer === 'general'
+                    ? 'border-indigo-500 bg-indigo-50'
                     : 'border-slate-200 hover:border-slate-300'
                 }`}
               >
@@ -162,8 +163,8 @@ export const PublishToCommunityModal = ({
                   setSelectedCategoryId(null);
                 }}
                 className={`p-3 rounded-lg border-2 text-left transition-all ${
-                  selectedLayer === 'community' 
-                    ? 'border-indigo-500 bg-indigo-50' 
+                  selectedLayer === 'community'
+                    ? 'border-indigo-500 bg-indigo-50'
                     : 'border-slate-200 hover:border-slate-300'
                 }`}
               >
@@ -211,13 +212,13 @@ export const PublishToCommunityModal = ({
         </div>
         <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-lg transition-colors">取消</button>
-          <button 
+          <button
             onClick={() => {
               if (selectedCategoryId) {
                 onSubmit(selectedLayer, selectedCategoryId, selectedCommunityId || undefined);
                 onClose();
               }
-            }} 
+            }}
             disabled={!selectedCategoryId}
             className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
@@ -254,7 +255,7 @@ export const PublicationReviewPanel = ({
 
   if (!isOpen) return null;
 
-  const getDemo = (demoId: string) => demos.find(d => d.id === demoId);
+  const getDemo = (publication: DemoPublication) => publication.demo || demos.find(d => d.id === publication.demoId);
   const getCommunity = (communityId?: string) => communityId ? communities.find(c => c.id === communityId) : null;
   const getCategory = (categoryId: string) => categories.find(c => c.id === categoryId);
 
@@ -274,7 +275,7 @@ export const PublicationReviewPanel = ({
           ) : (
             <div className="space-y-3">
               {publications.map(pub => {
-                const demo = getDemo(pub.demoId);
+                const demo = getDemo(pub);
                 const community = getCommunity(pub.communityId);
                 const category = getCategory(pub.categoryId);
                 const isExpanded = expandedId === pub.id;
@@ -318,7 +319,7 @@ export const PublicationReviewPanel = ({
                             <span className="text-slate-800">{new Date(pub.requestedAt).toLocaleString()}</span>
                           </div>
                         </div>
-                        
+
                         {rejectingId === pub.id ? (
                           <div className="space-y-2">
                             <input
@@ -382,57 +383,135 @@ export const PublicationReviewPanel = ({
   );
 };
 
-export const CreateCategoryModal = ({ 
-  isOpen, 
+export const CreateCategoryModal = ({
+  isOpen,
   parentId,
-  onClose, 
-  onSubmit, 
-  t 
-}: { 
-  isOpen: boolean, 
+  showIconPicker = false,
+  onClose,
+  onSubmit,
+  t
+}: {
+  isOpen: boolean,
   parentId: string | null,
-  onClose: () => void, 
-  onSubmit: (name: string, parentId: string | null) => void,
-  t: any 
+  showIconPicker?: boolean,
+  onClose: () => void,
+  onSubmit: (name: string, parentId: string | null, icon?: string, translations?: { nameCn?: string; nameEn?: string }) => void,
+  t: any
 }) => {
   const [name, setName] = useState('');
+  const [nameCn, setNameCn] = useState('');
+  const [nameEn, setNameEn] = useState('');
+  const [nameInputMode, setNameInputMode] = useState<'bilingual' | 'single'>('bilingual');
+  const [selectedIcon, setSelectedIcon] = useState('sparkles');
+
+  useEffect(() => {
+    if (isOpen) {
+      setName('');
+      setNameCn('');
+      setNameEn('');
+      setNameInputMode('bilingual');
+      setSelectedIcon('sparkles');
+    }
+  }, [isOpen]);
+
+  const submitCategory = () => {
+    const fallbackName = name.trim() || nameCn.trim() || nameEn.trim();
+    if (!fallbackName) return;
+    onSubmit(fallbackName, parentId, showIconPicker ? selectedIcon : undefined, {
+      nameCn: nameCn.trim() || undefined,
+      nameEn: nameEn.trim() || undefined
+    });
+    setName('');
+    setNameCn('');
+    setNameEn('');
+    onClose();
+  };
 
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-      <div className="bg-white rounded-xl shadow-xl max-w-sm w-full overflow-hidden animate-in fade-in zoom-in duration-200">
+      <div className="bg-white rounded-xl shadow-xl max-w-xl w-full overflow-hidden animate-in fade-in zoom-in duration-200">
         <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
           <h3 className="font-bold text-slate-800">{parentId ? t('addSubCategory') : t('addCategory')}</h3>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
         </div>
-        <div className="p-6">
-          <label className="block text-sm font-medium text-slate-700 mb-2">{t('enterCategoryName')}</label>
-          <input 
-            value={name}
-            onChange={e => setName(e.target.value)}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-            autoFocus
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && name.trim()) {
-                onSubmit(name.trim(), parentId);
-                setName('');
-                onClose();
-              }
-            }}
-          />
+        <div className="p-6 space-y-5">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <label className="block text-sm font-bold text-slate-700">{t('enterCategoryName')}</label>
+              <button
+                type="button"
+                onClick={() => setNameInputMode(mode => mode === 'bilingual' ? 'single' : 'bilingual')}
+                className="px-3 py-1.5 text-xs font-bold rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors"
+              >
+                {nameInputMode === 'bilingual' ? '切换为单语输入' : '切换为双语输入'}
+              </button>
+            </div>
+            {nameInputMode === 'bilingual' ? (
+              <div className="grid grid-cols-1 gap-3">
+                <input
+                  value={nameCn}
+                  onChange={e => setNameCn(e.target.value)}
+                  placeholder={t('chineseOptional')}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-slate-50 focus:ring-2 focus:ring-indigo-500 outline-none focus:bg-white"
+                  autoFocus
+                />
+                <input
+                  value={nameEn}
+                  onChange={e => setNameEn(e.target.value)}
+                  placeholder={t('englishOptional')}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-slate-50 focus:ring-2 focus:ring-indigo-500 outline-none focus:bg-white"
+                />
+              </div>
+            ) : (
+              <input
+                value={name}
+                onChange={e => setName(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (name.trim() || nameCn.trim() || nameEn.trim())) {
+                    submitCategory();
+                  }
+                }}
+              />
+            )}
+          </div>
+          {showIconPicker && (
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm font-bold text-slate-700">{t('chooseCategoryIcon')}</span>
+                <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <PublicCategoryIcon icon={selectedIcon} className="w-4 h-4 text-indigo-600" />
+                  {PUBLIC_CATEGORY_ICON_OPTIONS.find(item => item.id === selectedIcon)?.label}
+                </div>
+              </div>
+              <div className="grid grid-cols-6 sm:grid-cols-8 gap-2 max-h-56 overflow-y-auto pr-1">
+                {PUBLIC_CATEGORY_ICON_OPTIONS.map(({ id, label }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setSelectedIcon(id)}
+                    title={label}
+                    className={`aspect-square rounded-xl border flex items-center justify-center transition-all ${
+                      selectedIcon === id
+                        ? 'border-indigo-500 bg-indigo-50 text-indigo-600 shadow-sm'
+                        : 'border-slate-200 text-slate-500 hover:border-indigo-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <PublicCategoryIcon icon={id} className="w-5 h-5" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
         <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-lg transition-colors">Cancel</button>
-          <button 
-            onClick={() => {
-              if (name.trim()) {
-                onSubmit(name.trim(), parentId);
-                setName('');
-                onClose();
-              }
-            }} 
-            disabled={!name.trim()}
+	          <button
+	            onClick={submitCategory}
+	            disabled={!name.trim() && !nameCn.trim() && !nameEn.trim()}
             className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm disabled:opacity-50 transition-colors"
           >
             {t('create')}
@@ -440,5 +519,5 @@ export const CreateCategoryModal = ({
         </div>
       </div>
     </div>
-  );
-};
+	  );
+	};

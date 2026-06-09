@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X, Users, Settings, Trash2, UserCheck, UserX, LogOut, Building2, ShieldCheck, Globe, Crown } from 'lucide-react';
-import { Community, UserRole, User } from '../types';
+import { X, Users, Settings, Trash2, UserCheck, UserX, LogOut, Building2, ShieldCheck, Globe, Crown, Lock, Eye } from 'lucide-react';
+import { Community, UserRole, User, ReviewMode } from '../types';
 import { CommunitiesAPI } from '../services/apiService';
 import { StorageService } from '../services/storageService';
 
@@ -30,25 +30,58 @@ export const CommunityAdminPanel: React.FC<CommunityAdminPanelProps> = ({
   const [activeTab, setActiveTab] = useState<'overview' | 'members' | 'requests'>('overview');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
-  
+
   const [isEditingInfo, setIsEditingInfo] = useState(false);
   const [editName, setEditName] = useState(community.name);
   const [editDescription, setEditDescription] = useState(community.description || '');
+  const [editNameCn, setEditNameCn] = useState(community.nameCn || '');
+  const [editNameEn, setEditNameEn] = useState(community.nameEn || '');
+  const [editDescriptionCn, setEditDescriptionCn] = useState(community.descriptionCn || '');
+  const [editDescriptionEn, setEditDescriptionEn] = useState(community.descriptionEn || '');
   const [users, setUsers] = useState<Map<string, User>>(new Map());
   const [loadingUsers, setLoadingUsers] = useState(true);
-  
+
   // Check if current user is creator, general admin, or sub-admin
   const isCreator = community.creatorId === currentUserId;
   const isGeneralAdmin = currentUserRole === 'general_admin';
   const isSubAdmin = community.adminMembers?.includes(currentUserId);
   const isFullAdmin = isCreator || isGeneralAdmin;
   const isAnyAdmin = isFullAdmin || isSubAdmin;
-  
+  const isPersonalCommunity = community.type === 'personal';
+  const currentReviewMode = community.reviewMode || (community.type === 'personal' ? 'post_review' : 'pre_review');
+
+  useEffect(() => {
+    setEditName(community.name);
+    setEditDescription(community.description || '');
+    setEditNameCn(community.nameCn || '');
+    setEditNameEn(community.nameEn || '');
+    setEditDescriptionCn(community.descriptionCn || '');
+    setEditDescriptionEn(community.descriptionEn || '');
+  }, [community.id, community.name, community.description, community.nameCn, community.nameEn, community.descriptionCn, community.descriptionEn]);
+
   const handleToggleCommunityType = () => {
+    if (community.type === 'personal') return;
     const newType = community.type === 'open' ? 'closed' : 'open';
     onUpdateCommunity({
       ...community,
       type: newType
+    });
+  };
+
+  const handleSetReviewMode = (reviewMode: ReviewMode) => {
+    onUpdateCommunity({
+      ...community,
+      reviewMode
+    });
+  };
+
+  const handleSetPersonalAccessDays = () => {
+    const raw = window.prompt('请输入个人社区访问有效天数（1-365）', String(community.personalAccessDays || 7));
+    if (raw === null) return;
+    const days = Math.max(1, Math.min(365, Number(raw) || 7));
+    onUpdateCommunity({
+      ...community,
+      personalAccessDays: days
     });
   };
 
@@ -60,7 +93,11 @@ export const CommunityAdminPanel: React.FC<CommunityAdminPanelProps> = ({
     onUpdateCommunity({
       ...community,
       name: editName.trim(),
-      description: editDescription.trim()
+      nameCn: editNameCn.trim() || undefined,
+      nameEn: editNameEn.trim() || undefined,
+      description: editDescription.trim(),
+      descriptionCn: editDescriptionCn.trim() || undefined,
+      descriptionEn: editDescriptionEn.trim() || undefined
     });
     setIsEditingInfo(false);
   };
@@ -70,7 +107,7 @@ export const CommunityAdminPanel: React.FC<CommunityAdminPanelProps> = ({
     const loadUsers = async () => {
       setLoadingUsers(true);
       const userMap = new Map<string, User>();
-      
+
       try {
         // Load all members and pending members
         const allUserIds = [...new Set([
@@ -79,7 +116,7 @@ export const CommunityAdminPanel: React.FC<CommunityAdminPanelProps> = ({
           community.creatorId,
           ...(community.adminMembers || [])
         ])];
-        
+
         for (const userId of allUserIds) {
           try {
             const user = await StorageService.getUserById(userId);
@@ -90,7 +127,7 @@ export const CommunityAdminPanel: React.FC<CommunityAdminPanelProps> = ({
             console.error('Failed to load user:', userId, e);
           }
         }
-        
+
         setUsers(userMap);
       } catch (error) {
         console.error('Failed to load users:', error);
@@ -98,14 +135,14 @@ export const CommunityAdminPanel: React.FC<CommunityAdminPanelProps> = ({
         setLoadingUsers(false);
       }
     };
-    
+
     loadUsers();
   }, [community]);
 
   // Get all members info (in real app, you'd fetch user details)
   const memberCount = community.members.length;
   const pendingCount = community.pendingMembers.length;
-  
+
   // Helper to get user display name
   const getUserName = (userId: string) => {
     const user = users.get(userId);
@@ -259,7 +296,7 @@ export const CommunityAdminPanel: React.FC<CommunityAdminPanelProps> = ({
           {activeTab === 'overview' && (
             <div className="space-y-6">
               {/* Community Info Card */}
-              <div className="bg-slate-50 rounded-xl p-6">
+              <div className={`${isPersonalCommunity ? 'bg-gradient-to-br from-violet-50 via-white to-fuchsia-50 border border-violet-100' : 'bg-slate-50'} rounded-xl p-6`}>
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                     <Building2 className="w-5 h-5 text-indigo-600" />
@@ -280,25 +317,41 @@ export const CommunityAdminPanel: React.FC<CommunityAdminPanelProps> = ({
                         {t('save')}
                       </button>
                     </div>
-                  ) : (
+                  ) : isFullAdmin ? (
                     <button
                       onClick={() => setIsEditingInfo(true)}
                       className="px-3 py-1 text-xs font-bold text-indigo-600 hover:bg-indigo-50 border border-indigo-200 rounded-lg transition-colors"
                     >
                       {t('editInfo')}
                     </button>
-                  )}
+                  ) : null}
                 </div>
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <div className="bg-white p-4 rounded-lg">
                     <p className="text-sm text-slate-500 mb-1">{t('communityName')}</p>
                     {isEditingInfo ? (
-                      <input
-                        type="text"
-                        value={editName}
-                        onChange={(e) => setEditName(e.target.value)}
-                        className="w-full px-2 py-1 border border-indigo-300 rounded focus:ring-1 focus:ring-indigo-500 outline-none font-medium"
-                      />
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          className="w-full px-2 py-1 border border-indigo-300 rounded focus:ring-1 focus:ring-indigo-500 outline-none font-medium"
+                        />
+                        <input
+                          type="text"
+                          value={editNameCn}
+                          onChange={(e) => setEditNameCn(e.target.value)}
+                          placeholder={t('chineseOptional')}
+                          className="w-full px-2 py-1 border border-slate-200 rounded focus:ring-1 focus:ring-indigo-500 outline-none text-sm"
+                        />
+                        <input
+                          type="text"
+                          value={editNameEn}
+                          onChange={(e) => setEditNameEn(e.target.value)}
+                          placeholder={t('englishOptional')}
+                          className="w-full px-2 py-1 border border-slate-200 rounded focus:ring-1 focus:ring-indigo-500 outline-none text-sm"
+                        />
+                      </div>
                     ) : (
                       <p className="font-medium text-slate-800">{community.name}</p>
                     )}
@@ -316,13 +369,37 @@ export const CommunityAdminPanel: React.FC<CommunityAdminPanelProps> = ({
                     <p className="font-medium text-slate-800">{pendingCount} {t('user')}</p>
                   </div>
                 </div>
-                
+
+                {isPersonalCommunity && isFullAdmin && (
+                  <div className="bg-white/80 p-5 rounded-2xl mb-4 border border-violet-100">
+                    <p className="text-sm font-bold text-violet-800 mb-2">个人社区访问规则</p>
+                    <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-4 items-center">
+                      <div className="text-sm leading-6 text-slate-600">
+                        <p>个人社区只在你的社区大厅中显示。其他用户需要点击你的头像进入个人主页，再提交访问申请。</p>
+                        <p className="mt-1">你通过申请后，对方会获得限时访问权限；下面的天数就是这段临时访问的有效期。</p>
+                      </div>
+                      <button
+                        onClick={handleSetPersonalAccessDays}
+                        className="px-5 py-3 rounded-xl font-bold bg-violet-600 text-white hover:bg-violet-700 transition-colors shadow-lg shadow-violet-200"
+                      >
+                        访问有效期 {community.personalAccessDays || 7} 天
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Community Type Section */}
-                <div className="bg-white p-4 rounded-lg mb-4">
+                {isFullAdmin && (
+                <div className={`${isPersonalCommunity ? 'hidden' : 'bg-white'} p-4 rounded-lg mb-4`}>
                   <p className="text-sm text-slate-500 mb-3">{t('communityStatus')}</p>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      {community.type === 'open' ? (
+                      {community.type === 'personal' ? (
+                        <div className="flex items-center gap-2 text-violet-700">
+                          <Lock className="w-5 h-5" />
+                          <span className="font-medium">个人社区 - 仅本人可在社区大厅看到</span>
+                        </div>
+                      ) : community.type === 'open' ? (
                         <div className="flex items-center gap-2 text-emerald-700">
                           <Globe className="w-5 h-5" />
                           <span className="font-medium">{t('openCommunityDesc')}</span>
@@ -334,28 +411,90 @@ export const CommunityAdminPanel: React.FC<CommunityAdminPanelProps> = ({
                         </div>
                       )}
                     </div>
+                    {community.type === 'personal' ? (
+                      <button
+                        onClick={handleSetPersonalAccessDays}
+                        className="px-4 py-2 rounded-lg font-medium bg-violet-100 text-violet-700 hover:bg-violet-200 transition-all"
+                      >
+                        访问有效期 {community.personalAccessDays || 7} 天
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handleToggleCommunityType}
+                        className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                          community.type === 'open'
+                            ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
+                            : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                        }`}
+                      >
+                        {community.type === 'open' ? t('convertToClosed') : t('convertToOpen')}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                )}
+
+                {isFullAdmin && !isPersonalCommunity && (
+                <div className="bg-white p-4 rounded-lg mb-4">
+                  <p className="text-sm text-slate-500 mb-3">发布审核策略</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <button
-                      onClick={handleToggleCommunityType}
-                      className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                        community.type === 'open' 
-                          ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' 
-                          : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                      onClick={() => handleSetReviewMode('pre_review')}
+                      className={`text-left p-4 rounded-xl border transition-all ${
+                        currentReviewMode === 'pre_review'
+                          ? 'border-indigo-400 bg-indigo-50 text-indigo-800'
+                          : 'border-slate-200 hover:border-indigo-200 hover:bg-slate-50 text-slate-700'
                       }`}
                     >
-                      {community.type === 'open' ? t('convertToClosed') : t('convertToOpen')}
+                      <div className="flex items-center gap-2 font-bold mb-1">
+                        <ShieldCheck className="w-5 h-5" />
+                        先审后发
+                      </div>
+                      <p className="text-xs leading-relaxed opacity-80">用户提交后进入审核，通过后正式展示。</p>
+                    </button>
+                    <button
+                      onClick={() => handleSetReviewMode('post_review')}
+                      className={`text-left p-4 rounded-xl border transition-all ${
+                        currentReviewMode === 'post_review'
+                          ? 'border-emerald-400 bg-emerald-50 text-emerald-800'
+                          : 'border-slate-200 hover:border-emerald-200 hover:bg-slate-50 text-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 font-bold mb-1">
+                        <Eye className="w-5 h-5" />
+                        即发后巡
+                      </div>
+                      <p className="text-xs leading-relaxed opacity-80">提交后立即上线，管理员可后续填写说明并下架。</p>
                     </button>
                   </div>
                 </div>
-                
+                )}
+
                 <div className="bg-white p-4 rounded-lg">
                   <p className="text-sm text-slate-500 mb-1">{t('communityDesc')}</p>
                   {isEditingInfo ? (
-                    <textarea
-                      value={editDescription}
-                      onChange={(e) => setEditDescription(e.target.value)}
-                      rows={3}
-                      className="w-full px-2 py-1 border border-indigo-300 rounded focus:ring-1 focus:ring-indigo-500 outline-none"
-                    />
+                    <div className="space-y-2">
+                      <textarea
+                        value={editDescription}
+                        onChange={(e) => setEditDescription(e.target.value)}
+                        rows={3}
+                        className="w-full px-2 py-1 border border-indigo-300 rounded focus:ring-1 focus:ring-indigo-500 outline-none"
+                      />
+                      <textarea
+                        value={editDescriptionCn}
+                        onChange={(e) => setEditDescriptionCn(e.target.value)}
+                        rows={2}
+                        placeholder={t('chineseOptional')}
+                        className="w-full px-2 py-1 border border-slate-200 rounded focus:ring-1 focus:ring-indigo-500 outline-none text-sm"
+                      />
+                      <textarea
+                        value={editDescriptionEn}
+                        onChange={(e) => setEditDescriptionEn(e.target.value)}
+                        rows={2}
+                        placeholder={t('englishOptional')}
+                        className="w-full px-2 py-1 border border-slate-200 rounded focus:ring-1 focus:ring-indigo-500 outline-none text-sm"
+                      />
+                    </div>
                   ) : (
                     <p className="text-slate-800">{community.description}</p>
                   )}
@@ -363,7 +502,7 @@ export const CommunityAdminPanel: React.FC<CommunityAdminPanelProps> = ({
               </div>
 
               {/* Danger Zone - Only for Creator or General Admin */}
-              {(community.creatorId === currentUserId || currentUserRole === 'general_admin') && (
+              {!isPersonalCommunity && (community.creatorId === currentUserId || currentUserRole === 'general_admin') && (
                 <div className="bg-red-50 rounded-xl p-6 border border-red-100">
                   <h3 className="text-lg font-bold text-red-800 mb-4 flex items-center gap-2">
                     <Trash2 className="w-5 h-5" />
@@ -465,8 +604,8 @@ export const CommunityAdminPanel: React.FC<CommunityAdminPanelProps> = ({
                             <button
                               onClick={() => handleToggleAdmin(memberId)}
                               className={`p-2 rounded-lg transition-colors ${
-                                isAdmin 
-                                  ? 'text-yellow-600 hover:bg-yellow-100' 
+                                isAdmin
+                                  ? 'text-yellow-600 hover:bg-yellow-100'
                                   : 'text-slate-400 hover:text-yellow-600 hover:bg-yellow-50'
                               }`}
                               title={isAdmin ? '取消管理员' : '设为管理员'}
