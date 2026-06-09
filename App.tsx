@@ -2301,47 +2301,45 @@ export default function App() {
 
                       if (isPersonalCommunity) {
                         return (
-                          <div key={c.id} className="relative overflow-hidden rounded-3xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-fuchsia-50 p-7 shadow-xl shadow-violet-100/60 transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl hover:shadow-violet-200/60">
-                            <div className="absolute -right-16 -top-16 w-40 h-40 rounded-full bg-violet-200/30 blur-3xl" />
-                            <div className="absolute -bottom-16 left-8 w-36 h-36 rounded-full bg-fuchsia-200/25 blur-3xl" />
-                            <div className="relative flex h-full min-h-[310px] flex-col">
-                              <div className="flex items-start justify-between gap-4">
-                                <div className="w-16 h-16 rounded-3xl bg-white/85 border border-violet-100 shadow-lg shadow-violet-100 flex items-center justify-center text-violet-700">
-                                  <UserCircle className="w-9 h-9" />
+                          <div key={c.id} className="group relative rounded-3xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-fuchsia-50 p-7 shadow-sm shadow-violet-100/70 transition-all duration-300 hover:-translate-y-1 hover:border-violet-300 hover:shadow-xl hover:shadow-violet-100">
+                            <div className="absolute -right-20 -top-20 w-44 h-44 rounded-full bg-violet-200/25 blur-3xl" />
+                            <div className="relative flex items-start justify-between gap-4 mb-7">
+                                <div className="w-14 h-14 rounded-2xl bg-white/90 border border-violet-100 shadow-sm flex items-center justify-center text-violet-700">
+                                  <UserCircle className="w-7 h-7" />
                                 </div>
-                                <span
-                                  title={typeHint}
-                                  className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-white/80 px-3 py-1.5 text-xs font-bold text-violet-700 shadow-sm"
-                                >
-                                  <Lock className="w-3.5 h-3.5" />
-                                  私人空间
-                                </span>
-                              </div>
+                                <div className="group/personalchip relative">
+                                  <span className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-white/85 px-3 py-1.5 text-xs font-bold text-violet-700 shadow-sm">
+                                    <Lock className="w-3.5 h-3.5" />
+                                    私人空间
+                                  </span>
+                                  <div className="pointer-events-none absolute right-0 top-full z-30 mt-2 w-72 rounded-2xl border border-violet-100 bg-white p-3 text-xs leading-5 text-slate-600 opacity-0 shadow-xl shadow-slate-200/70 transition-opacity group-hover/personalchip:opacity-100">
+                                    {typeHint}访问有效期默认为 {c.personalAccessDays || 7} 天，可在管理页调整。
+                                  </div>
+                                </div>
+                            </div>
 
-                              <div className="mt-8">
-                                <p className="text-xs font-bold uppercase tracking-wider text-violet-500">Personal Community</p>
-                                <h3 className="mt-2 text-2xl font-black text-slate-900">{c.name}</h3>
-                                <p className="mt-3 min-h-12 text-sm leading-6 text-slate-600 line-clamp-2">{c.description || '你的个人发布空间'}</p>
-                              </div>
+                            <p className="text-xs font-bold uppercase tracking-wider text-violet-500 mb-2">Personal Community</p>
+                            <h3 className="text-2xl font-black text-slate-900 mb-3">{c.name}</h3>
+                            <p className="text-sm text-slate-500 mb-6 line-clamp-2 min-h-12 leading-6">{c.description || '你的个人发布空间'}</p>
 
-                              <div className="mt-6 rounded-2xl border border-violet-100 bg-white/70 p-4 text-sm leading-6 text-slate-600">
-                                <p className="font-bold text-violet-700">访问规则</p>
-                                <p className="mt-1">只有你会在社区大厅看到它。其他用户需要点击你的头像进入个人主页并提交申请。</p>
-                                <p className="mt-1">访问有效期：{c.personalAccessDays || 7} 天，可在管理页调整。</p>
-                              </div>
+                            <div className="mb-7 flex items-center justify-between rounded-2xl bg-white/75 px-4 py-3 text-xs font-bold text-violet-600 ring-1 ring-violet-100">
+                                <span>个人发布空间</span>
+                                <span>{c.members.length} {t('member')}</span>
+                            </div>
 
-                              <div className="mt-auto flex gap-3 pt-6">
+                              <div className="relative flex gap-3">
                                 <button
                                   onClick={() => { setActiveCommunityId(c.id); setView('explore'); }}
-                                  className="flex-1 rounded-2xl bg-white/85 px-4 py-3 font-bold text-violet-700 shadow-sm ring-1 ring-violet-100 transition-colors hover:bg-white"
+                                  className="flex-1 px-4 py-3 bg-white/85 text-violet-700 font-bold rounded-xl hover:bg-white transition-colors ring-1 ring-violet-100"
                                 >
                                   {t('open')}
                                 </button>
                                 {isCommunityAdmin && (
                                   <button
                                     onClick={() => setActiveCommunityAdminPanel(c.id)}
-                                    className="relative rounded-2xl bg-violet-700 px-5 py-3 font-bold text-white shadow-lg shadow-violet-300 transition-colors hover:bg-violet-800"
+                                    className="relative px-4 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors flex items-center gap-2 shadow-lg shadow-indigo-500/20"
                                   >
+                                    <Settings className="w-4 h-4" />
                                     管理
                                     {hasPendingRequests && (
                                       <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
@@ -2351,7 +2349,6 @@ export default function App() {
                                   </button>
                                 )}
                               </div>
-                            </div>
                           </div>
                         );
                       }
@@ -2363,13 +2360,19 @@ export default function App() {
                                       {isOpenCommunity ? <Globe className="w-7 h-7" /> : <Users className="w-7 h-7" />}
                                   </div>
                                   <div className="flex flex-wrap justify-end gap-2">
-                                      <span title={typeHint} className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full border ${cardTone.status}`}>
+                                      <span className={`group/typechip relative inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full border ${cardTone.status}`}>
                                           {isOpenCommunity ? <Globe className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
                                           {isOpenCommunity ? '开放' : '封闭'}
+                                          <span className="pointer-events-none absolute right-0 top-full z-30 mt-2 w-64 rounded-2xl border border-slate-100 bg-white p-3 text-left text-xs leading-5 text-slate-600 opacity-0 shadow-xl shadow-slate-200/70 transition-opacity group-hover/typechip:opacity-100">
+                                            {typeHint}
+                                          </span>
                                       </span>
-                                      <span title={reviewModeHint} className="inline-flex items-center gap-1.5 text-xs font-bold bg-amber-50 text-amber-700 px-3 py-1.5 rounded-full border border-amber-200">
+                                      <span className="group/reviewchip relative inline-flex items-center gap-1.5 text-xs font-bold bg-amber-50 text-amber-700 px-3 py-1.5 rounded-full border border-amber-200">
                                           <ShieldCheck className="w-3.5 h-3.5" />
                                           {reviewModeLabel}
+                                          <span className="pointer-events-none absolute right-0 top-full z-30 mt-2 w-64 rounded-2xl border border-slate-100 bg-white p-3 text-left text-xs leading-5 text-slate-600 opacity-0 shadow-xl shadow-slate-200/70 transition-opacity group-hover/reviewchip:opacity-100">
+                                            {reviewModeHint}
+                                          </span>
                                       </span>
                                   </div>
                               </div>
@@ -2393,7 +2396,7 @@ export default function App() {
                                           </button>
                                           <button
                                               onClick={() => setActiveCommunityAdminPanel(c.id)}
-                                              className="px-4 py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-colors flex items-center gap-2 relative"
+                                              className="px-4 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors flex items-center gap-2 relative shadow-lg shadow-indigo-500/20"
                                           >
                                               <Settings className="w-4 h-4" />
                                               管理
